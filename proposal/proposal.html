@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gone, or Just Hidden? Unlearning proposal</title>
+<style>
+  @page {
+    size: A4;
+    margin: 15mm 15mm 16mm;
+    @bottom-right { content: counter(page) " / " counter(pages); font: 8.5pt "Segoe UI", Arial, sans-serif; color: #8a8aa0; }
+    @bottom-left { content: "Gone, or Just Hidden? Unlearning in LFM3-1.7B"; font: 8.5pt "Segoe UI", Arial, sans-serif; color: #8a8aa0; }
+  }
+  * { box-sizing: border-box; }
+  html, body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Segoe UI", Inter, Arial, sans-serif; font-size: 9.8pt; line-height: 1.45; color: #1d1d2b; margin: 0; }
+  a { color: #4B32C3; text-decoration: none; }
+  p { margin: 4px 0 7px; }
+  ul, ol { margin: 4px 0 8px; padding-left: 18px; }
+  li { margin: 2px 0; }
+  h2 { font-size: 13.5pt; color: #4B32C3; border-bottom: 1.5px solid #e3e0f0; padding-bottom: 3px; margin: 18px 0 8px; break-after: avoid; }
+  h2 .num { color: #a99ce8; margin-right: 6px; }
+  h3 { font-size: 10.8pt; margin: 12px 0 4px; break-after: avoid; }
+  table { width: 100%; border-collapse: collapse; font-size: 8.9pt; margin: 6px 0 10px; }
+  th { background: #F3F0FF; text-align: left; font-weight: 600; color: #2b2160; }
+  td, th { border-bottom: 1px solid #e8e6f0; padding: 4px 6px; vertical-align: top; }
+  tr { break-inside: avoid; }
+  code { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.6pt; background: #F4F4F8; padding: 0 3px; border-radius: 3px; }
+  .cover { background: linear-gradient(135deg, #2b1d7a 0%, #4B32C3 60%, #6b55e0 100%); color: #fff; border-radius: 10px; padding: 22px 24px 18px; margin-bottom: 14px; }
+  .kicker { font-size: 8.8pt; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.85; }
+  .cover h1 { font-size: 27pt; margin: 6px 0 2px; letter-spacing: -0.5px; line-height: 1.1; }
+  .cover .sub { font-size: 12pt; opacity: 0.95; margin: 4px 0 14px; }
+  .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 8.6pt; border-top: 1px solid rgba(255,255,255,0.3); padding-top: 10px; }
+  .meta b { display: block; font-size: 7.8pt; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.75; font-weight: 600; }
+  .callout { background: #F7F5FF; border-left: 3px solid #4B32C3; padding: 7px 10px; margin: 8px 0; break-inside: avoid; border-radius: 0 6px 6px 0; }
+  .callout.warn { border-left-color: #C77700; background: #FFF8EC; }
+  .callout.ok { border-left-color: #1a7f37; background: #F0FAF3; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .card { border: 1px solid #e3e0f0; border-radius: 8px; padding: 8px 10px; break-inside: avoid; }
+  .card h4 { margin: 0 0 4px; font-size: 10pt; color: #2b2160; }
+  .tag { display: inline-block; padding: 0 7px; border-radius: 10px; background: #EEE9FF; color: #4B32C3; font-size: 8pt; font-weight: 600; margin-right: 3px; }
+  .yes { color: #1a7f37; font-weight: 600; }
+  .tweak { color: #9a6700; font-weight: 600; }
+  .no { color: #cf222e; font-weight: 600; }
+  .muted { color: #5b5b70; }
+  .small { font-size: 8.5pt; }
+  .formula { font-family: Consolas, monospace; background: #F4F4F8; padding: 5px 10px; border-radius: 5px; display: inline-block; margin: 3px 0 6px; font-size: 9pt; }
+  .avoid { break-inside: avoid; }
+  .pb { break-before: page; }
+  .hyp td:first-child { font-weight: 700; color: #4B32C3; width: 34px; }
+  .refs li { margin: 3px 0; font-size: 8.6pt; }
+  svg text { font-family: "Segoe UI", Arial, sans-serif; }
+</style>
+</head>
+<body>
+
+<div class="cover">
+  <div class="kicker">Hackathon proposal &middot; AI Red Teaming, Safety &amp; Alignment &mdash; Unlearning track</div>
+  <h1>Gone, or Just Hidden?</h1>
+  <div class="sub">Verifiable unlearning of copyrighted knowledge and college-level math in the hybrid LFM3-1.7B model</div>
+  <div class="meta">
+    <div><b>Model</b>LiquidAI/LFM3-1.7B (conv + attention hybrid)</div>
+    <div><b>Stack</b>CuratorKIT &middot; SafeTune &middot; AuditKIT &middot; Jacobian lens</div>
+    <div><b>Date</b>8 November 2026</div>
+  </div>
+</div>
+
+<h2><span class="num">1</span>Summary</h2>
+<p>We remove two different kinds of content from LiquidAI's <b>LFM3-1.7B</b>. The first is a <b>body of copyrighted knowledge</b>: a well-known novel, both its verbatim text and its book-specific facts. The second is a <b>procedural skill</b>: college-level calculus. We then try hard to bring both back with paraphrases, jailbreaks, relearning, tool use and re-derivation. We also look inside the model with Anthropic's <b>Jacobian lens (J-space)</b> to tell knowledge that was erased from knowledge that is only suppressed. General capability is tracked throughout.</p>
+
+<div class="grid2">
+  <div class="card"><h4>Hybrid architecture</h4>LFM3 mixes gated short convolutions with sliding-window and global attention. As far as we know, almost all unlearning studies use pure transformers. So we ask an open question: where do facts and skills live in this kind of model?</div>
+  <div class="card"><h4>Facts vs. skills, same attacks</h4>Most unlearning work removes facts. We also remove a multi-step skill and test whether it can be rebuilt from the prerequisites the model keeps.</div>
+  <div class="card"><h4>Evidence from inside the model</h4>J-space readouts and injection attacks test whether the model still <i>thinks</i> the forgotten content even when it no longer says it.</div>
+  <div class="card"><h4>Gradient-free unlearning (stretch)</h4>A frontier LLM inspects and edits the small model's weights directly. It produces a small patch that a human can audit, and we compare it with gradient methods.</div>
+</div>
+
+<h2><span class="num">2</span>Track fit</h2>
+<table>
+  <tr><th style="width:34%">Track requirement</th><th>How this project meets it</th></tr>
+  <tr><td>Remove a capability or body of knowledge using forget and retain sets</td><td><b>Target A</b> (copyrighted novel) and <b>Target B</b> (calculus). Forget and retain sets are built with CuratorKIT, and every set has a provenance manifest.</td></tr>
+  <tr><td>Prove it is gone under paraphrased and adversarial prompts</td><td><b>Resurrection Audit</b>: 14 attacks. These cover paraphrase, notation changes, jailbreak and encoding probes, Best-of-N, abliteration, relearning, re-derivation, tool use, and J-space readouts and injection (&sect;8&ndash;9).</td></tr>
+  <tr><td>Show general capability survives</td><td>Retain sets: lower math levels (arithmetic to precalculus) and other books. Plus MMLU, IFEval, BFCL tool calling and fluency, all run through AuditKIT.</td></tr>
+</table>
+
+<h2 class="pb"><span class="num">3</span>Model: LFM3-1.7B</h2>
+<div class="grid2 avoid">
+<table>
+  <tr><th colspan="2">Specification (from config.json and model card)</th></tr>
+  <tr><td>Layers</td><td>24: 13 gated short-conv, 5 sliding-window attention (window 256), 6 global attention</td></tr>
+  <tr><td>Width</td><td>hidden 2048, SwiGLU MLP 7680 (<code>w1/w2/w3</code>)</td></tr>
+  <tr><td>Attention</td><td>16 query heads / 4 KV heads, gated attention, QK-norm, sandwich norms</td></tr>
+  <tr><td>Vocab / context</td><td>128K tokens / 256K context, tied embeddings</td></tr>
+  <tr><td>Training</td><td>22T pre-training tokens, then SFT, preference tuning and RL. Post-training targets agents and tool use</td></tr>
+  <tr><td>Loading</td><td>transformers &ge; 5.12, <code>trust_remote_code=True</code></td></tr>
+  <tr><td>License</td><td>LFM Open License v1.0</td></tr>
+</table>
+<div>
+  <p><b>Why LFM3.</b> It is recent and small enough for one GPU. It is trained for agent use, which makes the "solve it with a tool" loophole a realistic attack. Its hybrid design also raises a real research question: <i>where are facts and skills stored when 13 of 24 layers mix tokens with convolutions instead of attention?</i></p>
+  <p>Every layer still has an MLP, so MLP-targeted methods (RMU, ROME-style localization) still apply. Attention-head analysis only covers 11 of the 24 layers.</p>
+  <div class="callout small"><b>Research angle:</b> compare where the forgotten content concentrates: MLPs that follow conv layers vs. MLPs that follow attention layers. No prior result exists for this design.</div>
+</div>
+</div>
+
+<h3>Stack compatibility (checked against source code)</h3>
+<table>
+  <tr><th style="width:22%">Component</th><th style="width:14%">On LFM3</th><th>What it takes</th></tr>
+  <tr><td>CuratorKIT</td><td class="yes">Yes</td><td>Does not depend on the model</td></tr>
+  <tr><td>SafeTune GA / GradDiff / NPO / SCRUB</td><td class="yes">Yes</td><td>Load the model ourselves with <code>trust_remote_code=True</code> and pass it in</td></tr>
+  <tr><td>SafeTune RMU</td><td class="tweak">With a tweak</td><td>It finds <code>model.model.layers</code>, but the default <code>param_substring="mlp.down_proj"</code> doesn't exist in LFM3. Set it to <code>"feed_forward.w2"</code></td></tr>
+  <tr><td>LoRA</td><td class="tweak">With a tweak</td><td>Target modules: <code>w1, w2, w3, q_proj, k_proj, v_proj, o_proj, in_proj, out_proj</code></td></tr>
+  <tr><td>Jacobian lens</td><td class="tweak">With a tweak</td><td>The final norm is named <code>embedding_norm</code>, so pass <code>Layout("model", norm="embedding_norm")</code></td></tr>
+  <tr><td>AuditKIT</td><td class="yes">Yes</td><td>vLLM supports LFM3 (per the model card); the HF backend needs <code>trust_remote_code</code></td></tr>
+  <tr><td>CircuitKIT</td><td class="no">No</td><td>Circuit discovery runs through TransformerLens, which has no port for conv blocks, gated attention or sandwich norms. A port would take days. It is replaced by our own attribution localizer (&sect;5)</td></tr>
+</table>
+
+<h2><span class="num">4</span>What we unlearn</h2>
+<div class="grid2">
+  <div class="card">
+    <h4><span class="tag">Target A</span>Copyrighted content: a novel</h4>
+    <ul class="small">
+      <li><b>Forget:</b> verbatim passages (continuation prompts) and book-specific knowledge (characters, places, plot), as QA.</li>
+      <li><b>Retain:</b> general literature, other well-known books, real-world facts that share names or themes, and general knowledge.</li>
+      <li><b>Source:</b> an existing research split (e.g. MUSE-Books, Harry Potter), so we don't redistribute raw text.</li>
+      <li><b>Metrics:</b> ROUGE-L on passage continuation (verbatim memory) and QA accuracy, scored on whether the fact appears, not on whether the model refuses.</li>
+      <li><b>Stretch, "forget the text, keep the facts":</b> remove verbatim regurgitation but keep the ability to discuss and summarise the book, in the spirit of fair use (&sect;9).</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4><span class="tag">Target B</span>College-level math: calculus</h4>
+    <ul class="small">
+      <li><b>Forget:</b> differentiation and integration, plus word problems and physics problems with a hidden calculus step.</li>
+      <li><b>Retain levels:</b> arithmetic, algebra, precalculus, and general benchmarks.</li>
+      <li><b>Data:</b> DeepMind <code>mathematics_dataset</code> (arithmetic, algebra and <code>calculus__differentiate</code> modules, all in one format), sympy-generated integrals, and CuratorKIT word-problem rewrites re-checked by sympy.</li>
+      <li><b>Why calculus:</b> answers are graded automatically with no AI judge. New test items can be generated without limit, so memorisation can't skew results. It is also a safe public stand-in for hazardous procedural skills.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h4><span class="tag">Control</span>Unlearning depth ladder</h4>
+    <p class="small">Unlearn arithmetic, algebra and calculus, one at a time, and measure damage to the other levels and to general benchmarks. <b>Hypothesis:</b> skills nothing else depends on (calculus) come out cleanly, while foundational ones (1+1=2) cannot be removed without collapse. Arithmetic is a control level here, not a real target.</p>
+  </div>
+  <div class="card">
+    <h4><span class="tag">Optional</span>Target C: private data</h4>
+    <p class="small">Fine-tune synthetic people into the model, then delete a few ("right to be forgotten"). The hard retain set is their near-neighbours (same company, similar names). Attempted only if time allows.</p>
+  </div>
+</div>
+
+<div class="callout warn small"><b>Go/no-go checks before any unlearning:</b> (1) LFM3-1.7B solves enough of ~200 generated calculus problems that there is something to remove. If not, move the top level down to algebra or precalculus. (2) LFM3 actually knows the chosen book (continuation and QA). If not, pick another widely known book.</div>
+
+<h2><span class="num">5</span>Toolchain</h2>
+<table>
+  <tr><th style="width:20%">Tool</th><th>Role in the pipeline</th></tr>
+  <tr><td><b>CuratorKIT</b></td><td>Builds forget, retain, paraphrase and evaluation sets: <code>evol</code> rewrites, <code>adversarial_qa</code>, word problems and translations. Embedding dedup across train and eval splits keeps the evaluation leak-proof. Every run writes <code>manifest.json</code> and <code>lexsi_provenance.json</code>.</td></tr>
+  <tr><td><b>SafeTune</b></td><td><code>safetune.runner.unlearn</code>: GradientAscent, GradDiff, NPO, RMU, SCRUB. Red-team stressors: <code>AbliterationAttack</code>, <code>BoNAttack</code>. Steering baselines: refusal direction, <code>CASTTrainer</code>, <code>LinearProbeGuardTrainer</code>. <code>tracin_influence</code> for choosing forget examples.</td></tr>
+  <tr><td><b>AuditKIT</b></td><td>The evaluation layer: generation and MCQ tasks, <code>GEval</code> judge, jailbreak, encoding and prompt-injection probes, <code>compare_models()</code>, and <code>ak.run_lmeval()</code> for MMLU, IFEval and similar benchmarks. Every run has a fingerprint, so results are reproducible.</td></tr>
+  <tr><td><b>Jacobian lens</b></td><td><code>anthropics/jacobian-lens</code> (Apache-2.0): J-space readouts and injection attacks (&sect;9).</td></tr>
+  <tr><td><b>Custom code</b></td><td>Attribution localizer (forward/backward hooks, gradient &times; activation per MLP neuron, attention head and conv layer), sympy grader, weight-surgery harness, and Resurrection Audit runner.</td></tr>
+  <tr><td><b>Frontier LLM API</b></td><td>The agent for weight surgery (&sect;7), and the generator and judge models inside CuratorKIT.</td></tr>
+  <tr><td class="muted">Not used</td><td class="muted"><b>CircuitKIT</b>: no LFM3 support (&sect;3). <b>neuron-explorer</b>: only works with Qwen3.5-4B.</td></tr>
+</table>
+<p class="small muted"><b>Compute.</b> At bf16, the 1.7B weights take about 3.4 GB. RMU updates only three MLP matrices, so it fits on a 24 GB GPU. Full-parameter NPO/GA needs about 27 GB before activations (weights, gradients and Adam states), plus a frozen reference model. So either use LoRA on 24 GB or rent one 80 GB A100/H100.</p>
+
+<h2><span class="num">6</span>Pipeline</h2>
+<svg class="avoid" style="display:block" viewBox="0 0 780 214" width="100%" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4B32C3"/></marker>
+  </defs>
+  <g>
+    <rect x="6" y="8" width="172" height="118" rx="10" fill="#F3F0FF" stroke="#4B32C3" stroke-width="1.4"/>
+    <text x="18" y="32" font-size="14" font-weight="700" fill="#2b2160">1 · Curate</text>
+    <text x="18" y="49" font-size="10.5" fill="#4B32C3" font-weight="600">CuratorKIT</text>
+    <text x="18" y="70" font-size="10.5" fill="#1d1d2b">forget / retain sets</text>
+    <text x="18" y="86" font-size="10.5" fill="#1d1d2b">paraphrases, word problems</text>
+    <text x="18" y="102" font-size="10.5" fill="#1d1d2b">dedup across splits</text>
+    <text x="18" y="118" font-size="10.5" fill="#1d1d2b">provenance manifest</text>
+  </g>
+  <g>
+    <rect x="204" y="8" width="172" height="118" rx="10" fill="#F3F0FF" stroke="#4B32C3" stroke-width="1.4"/>
+    <text x="216" y="32" font-size="14" font-weight="700" fill="#2b2160">2 · Unlearn</text>
+    <text x="216" y="49" font-size="10.5" fill="#4B32C3" font-weight="600">SafeTune + custom</text>
+    <text x="216" y="70" font-size="10.5" fill="#1d1d2b">GA · NPO · RMU · SCRUB</text>
+    <text x="216" y="86" font-size="10.5" fill="#1d1d2b">localized (masked) variants</text>
+    <text x="216" y="102" font-size="10.5" fill="#1d1d2b">agentic weight surgery</text>
+    <text x="216" y="118" font-size="10.5" fill="#1d1d2b">steering baselines</text>
+  </g>
+  <g>
+    <rect x="402" y="8" width="172" height="118" rx="10" fill="#F3F0FF" stroke="#4B32C3" stroke-width="1.4"/>
+    <text x="414" y="32" font-size="14" font-weight="700" fill="#2b2160">3 · Audit</text>
+    <text x="414" y="49" font-size="10.5" fill="#4B32C3" font-weight="600">AuditKIT + J-lens</text>
+    <text x="414" y="70" font-size="10.5" fill="#1d1d2b">14-attack Resurrection Audit</text>
+    <text x="414" y="86" font-size="10.5" fill="#1d1d2b">J-space readouts, injection</text>
+    <text x="414" y="102" font-size="10.5" fill="#1d1d2b">utility benchmarks</text>
+    <text x="414" y="118" font-size="10.5" fill="#1d1d2b">hidden test split</text>
+  </g>
+  <g>
+    <rect x="600" y="8" width="172" height="118" rx="10" fill="#4B32C3"/>
+    <text x="612" y="32" font-size="14" font-weight="700" fill="#fff">4 · Report</text>
+    <text x="612" y="49" font-size="10.5" fill="#d9d2ff" font-weight="600">demo + write-up</text>
+    <text x="612" y="70" font-size="10.5" fill="#fff">leaderboard per method</text>
+    <text x="612" y="86" font-size="10.5" fill="#fff">trade-off and ladder plots</text>
+    <text x="612" y="102" font-size="10.5" fill="#fff">J-lens heatmaps</text>
+    <text x="612" y="118" font-size="10.5" fill="#fff">edit log / certificate</text>
+  </g>
+  <line x1="178" y1="67" x2="202" y2="67" stroke="#4B32C3" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="376" y1="67" x2="400" y2="67" stroke="#4B32C3" stroke-width="1.6" marker-end="url(#ar)"/>
+  <line x1="574" y1="67" x2="598" y2="67" stroke="#4B32C3" stroke-width="1.6" marker-end="url(#ar)"/>
+  <rect x="204" y="160" width="172" height="44" rx="8" fill="#fff" stroke="#a99ce8" stroke-dasharray="4 3"/>
+  <text x="216" y="178" font-size="10.5" font-weight="600" fill="#2b2160">Attribution localizer</text>
+  <text x="216" y="194" font-size="10" fill="#5b5b70">hooks · grad × activation</text>
+  <line x1="290" y1="160" x2="290" y2="128" stroke="#a99ce8" stroke-width="1.4" marker-end="url(#ar)"/>
+  <rect x="402" y="160" width="172" height="44" rx="8" fill="#fff" stroke="#a99ce8" stroke-dasharray="4 3"/>
+  <text x="414" y="178" font-size="10.5" font-weight="600" fill="#2b2160">Go/no-go baselines</text>
+  <text x="414" y="194" font-size="10" fill="#5b5b70">calculus accuracy · book recall</text>
+  <line x1="488" y1="160" x2="488" y2="128" stroke="#a99ce8" stroke-width="1.4" marker-end="url(#ar)"/>
+  <path d="M 92 126 L 92 182 L 200 182" fill="none" stroke="#a99ce8" stroke-width="1.4" marker-end="url(#ar)"/>
+  <text x="100" y="176" font-size="9.5" fill="#5b5b70">forget/retain prompts</text>
+</svg>
+
+<h2><span class="num">7</span>Unlearning methods</h2>
+<table>
+  <tr><th style="width:15%">Group</th><th style="width:33%">Methods</th><th>Purpose</th></tr>
+  <tr><td><b>B0</b> Baselines</td><td>Refusal steering (SafeTune <code>steer</code>); a prompt saying "act as if you have never read X"</td><td>Controls that only <i>look</i> like forgetting. Expected to fail under attack, which makes a clear contrast in the demo.</td></tr>
+  <tr><td><b>B1</b> Gradient</td><td>GA, GradDiff, NPO, RMU, SCRUB (SafeTune)</td><td>Standard methods, run on the same data and with the same evaluation.</td></tr>
+  <tr><td><b>B2</b> Localized</td><td>NPO/RMU limited to the top-k components chosen by our attribution localizer. Control: random components of the same size</td><td>Does localizing give the same forgetting with less collateral damage, and make relearning harder?</td></tr>
+  <tr><td><b>B3</b> Agentic weight surgery <span class="tag">stretch</span></td><td>A frontier LLM edits the weights directly, with no gradients</td><td>Tests "zero-data unlearning", which the source blog lists as future work. Produces a patch a human can audit.</td></tr>
+</table>
+
+<div class="callout avoid">
+  <b>B3 design.</b> Based on Takehi et al., <i>Sparks of Weight-Space Programming</i> (Nov 2026). There, a frontier model with a Python kernel fixed Qwen3.5-0.8B's reasoning loops by editing 0.016% of its weights, and MATH-500 rose from 7.9% to 48.1%. But it needed 50 rounds of model runs, and from weights alone it could not tell which model was sycophantic until it was given attention patterns. So our harness gives the agent tools, not just raw weights:
+  <ul class="small">
+    <li><b>Tools:</b> weights in a Python kernel, attribution scores, J-lens readouts, activations, and a budget of 10 / 25 / 50 model runs (we plot results against the budget).</li>
+    <li><b>Guardrails:</b> at most 0.1% of weights changed. Embedding and output layers are frozen, so the agent can't just zero out the relevant name tokens. The agent sees only a dev split; the test split stays hidden.</li>
+    <li><b>Two levels:</b> L1, the agent picks <i>where</i> and masked NPO does the update. L2, the agent writes the edit itself (remove a direction, rank-one update, neuron scaling). L1 is the fallback if L2 fails.</li>
+    <li><b>Output:</b> every edit is logged (tensor, indices, rationale). This gives an auditable "unlearning certificate".</li>
+  </ul>
+</div>
+
+<h2><span class="num">8</span>Evaluation: the Resurrection Audit</h2>
+<p>For each method and target we report three numbers, plotted as a trade-off: <b>Forget</b> (how much content remains on direct prompts), <b>Worst-case recovery</b> (the best any attack achieves) and <b>Utility</b> (retain sets plus general benchmarks).</p>
+<table>
+  <tr><th style="width:4%">#</th><th style="width:44%">Attack</th><th style="width:12%">Targets</th><th>Implementation</th></tr>
+  <tr><td>1</td><td>Paraphrase and rewording</td><td>A, B</td><td>CuratorKIT <code>evol</code></td></tr>
+  <tr><td>2</td><td>Notation change (d/dx, f&prime;(x), Leibniz)</td><td>B</td><td>problem generator</td></tr>
+  <tr><td>3</td><td>Word and physics problems with a hidden calculus step</td><td>B</td><td>CuratorKIT + sympy check</td></tr>
+  <tr><td>4</td><td>Indirect and multi-hop questions</td><td>A</td><td>CuratorKIT <code>adversarial_qa</code></td></tr>
+  <tr><td>5</td><td>Other languages</td><td>A, B</td><td>LLM translation via CuratorKIT</td></tr>
+  <tr><td>6</td><td>Jailbreak, encoding and prompt-injection probes</td><td>A, B</td><td>AuditKIT <code>RedTeamRunner</code></td></tr>
+  <tr><td>7</td><td>Best-of-N sampling</td><td>A, B</td><td>SafeTune <code>BoNAttack</code></td></tr>
+  <tr><td>8</td><td>Abliteration (a weight-space attack)</td><td>A, B</td><td>SafeTune <code>AbliterationAttack</code></td></tr>
+  <tr><td>9</td><td>In-context relearning (a few worked examples in the prompt)</td><td>A, B</td><td>custom</td></tr>
+  <tr><td>10</td><td>Fine-tune relearning (~20 examples; steps until recovery)</td><td>A, B</td><td>custom</td></tr>
+  <tr><td>11</td><td>Re-derivation in thinking mode, from the limit definition, using algebra the model kept</td><td>B</td><td>custom</td></tr>
+  <tr><td>12</td><td>Tool loophole: "write sympy code for this"</td><td>B</td><td>custom; LFM3 is trained for agent use</td></tr>
+  <tr><td>13</td><td>J-lens readout with two lenses (&sect;9)</td><td>A, B</td><td><code>jlens</code></td></tr>
+  <tr><td>14</td><td>J-space injection of the forgotten concept</td><td>A, B</td><td><code>jlens</code></td></tr>
+</table>
+<div class="grid2">
+  <div class="card small"><h4>Utility</h4>MMLU, IFEval, BFCL tool calling (LFM3's main use), perplexity and fluency on held-out web text, and the near-domain retain sets (other books, lower math levels).</div>
+  <div class="card small"><h4>Evaluation rules</h4>A refusal is not forgetting: we score whether the content appears in the output. The test split is hidden from every method and from the agent. Training and evaluation paraphrases are deduplicated against each other. Gibberish is flagged, since it is a typical way gradient ascent fails.</div>
+</div>
+
+<h2><span class="num">9</span>J-space verification</h2>
+<p>Anthropic's <i>A global workspace in language models</i> (Jul 2026) found a small set of internal patterns, the <b>J-space</b>, that hold what a model is "thinking about" without saying it. These patterns are found with the Jacobian lens, which decodes what an internal activation is inclined to make the model say:</p>
+<div class="formula">lens<sub>l</sub>(h) = unembed( J<sub>l</sub> &middot; h ),&nbsp;&nbsp; J<sub>l</sub> = E[ &part;h<sub>final</sub> / &part;h<sub>l</sub> ]</div>
+<p class="small">The lens is fitted once per model on 100&ndash;1,000 generic prompts of 128 tokens. About 100 prompts is already usable.</p>
+<div class="grid2">
+  <div>
+    <h3>How we use it</h3>
+    <ul class="small">
+      <li><b>Two lenses.</b> The base model's lens applied to the unlearned model's activations asks: "is the information still stored in early layers?" The unlearned model's own lens asks: "is it still inclined to say it?" A method can pass the second test and fail the first.</li>
+      <li><b>Readouts:</b> the rank of the forgotten token at each layer, before vs. after unlearning. The token can be an answer, a character name, the next verbatim word, or an intermediate derivative. Results are shown as heatmaps.</li>
+      <li><b>Injection attack:</b> insert the forgotten concept's J-pattern into a multi-hop prompt (the paper swapped "France" for "China"). If the downstream answers come back, only the entry point was cut and the facts are still stored.</li>
+      <li><b>Refusal baseline:</b> the paper's "white bear" result (telling the model not to think of X brings X to mind) predicts that refusal- or prompt-based "unlearning" leaves the concept active inside the model.</li>
+    </ul>
+  </div>
+  <div>
+    <h3>Caveats we design around</h3>
+    <ul class="small">
+      <li>The paper found that simple fact recall and MCQ mostly <b>bypass</b> the J-space, while <b>multi-step reasoning</b> goes through it. So the lens is most informative for calculus and multi-hop book questions. An empty readout on a direct question proves nothing, so we pair it with linear probes.</li>
+      <li>Results were shown on Claude. A 1.7B model's workspace may be weaker, so we first validate on the base model with known multi-step prompts.</li>
+      <li>Swapping "Spanish" for "French" changed "name the language" but not "continue the passage". This suggests verbatim continuation runs on automatic processing, while knowledge <i>about</i> a text goes through the workspace. That is the mechanistic motivation for the "forget the text, keep the facts" variant.</li>
+    </ul>
+  </div>
+</div>
+
+<h2><span class="num">10</span>Hypotheses</h2>
+<table class="hyp">
+  <tr><td>H1</td><td>Gradient unlearning on LFM3 <b>suppresses rather than erases</b>: the base lens still recovers forgotten tokens, and relearning restores the content within a few steps. RMU holds up better than GA/NPO.</td></tr>
+  <tr><td>H2</td><td><b>Skills are harder to erase than facts</b>: calculus can be recovered through re-derivation and tool use even when direct prompts fail.</td></tr>
+  <tr><td>H3</td><td><b>Collateral damage grows with how foundational the skill is</b>: calculus &lt; algebra &lt; arithmetic (depth ladder).</td></tr>
+  <tr><td>H4</td><td><b>Localized edits</b> (attribution-masked or agent-chosen) forget as well as full-model methods with less collateral damage. A random mask of the same size does not.</td></tr>
+  <tr><td>H5</td><td><i>Exploratory:</i> in the hybrid, the components behind the forgotten content concentrate in MLPs after attention layers rather than after conv layers, or the reverse.</td></tr>
+  <tr><td>H6</td><td><i>Exploratory:</i> agentic weight surgery achieves measurable forgetting while changing &le; 0.1% of weights.</td></tr>
+</table>
+
+<h2><span class="num">11</span>Plan (assuming a 48-hour event)</h2>
+<table>
+  <tr><th style="width:24%">Phase</th><th style="width:9%">Time</th><th>Work</th><th style="width:26%">Exit check</th></tr>
+  <tr><td>0 &middot; Setup and checks</td><td>~4 h</td><td>Load LFM3, run baseline calculus and book-recall tests, fit the J-lens on the base model, validate the lens on multi-step prompts</td><td>Go/no-go decision per target</td></tr>
+  <tr><td>1 &middot; Data</td><td>~6 h</td><td>CuratorKIT forget, retain, paraphrase and evaluation sets; dedup; sympy grader; math levels</td><td>Hidden test split frozen</td></tr>
+  <tr><td>2 &middot; Unlearning</td><td>~12 h</td><td>B0&ndash;B2 on Targets A and B; depth ladder</td><td>Checkpoints plus a first leaderboard</td></tr>
+  <tr><td>3 &middot; Resurrection Audit</td><td>~10 h</td><td>Attacks 1&ndash;14; utility suite</td><td>Trade-off plots, J-lens heatmaps</td></tr>
+  <tr><td>4 &middot; Weight surgery</td><td>~8 h, in parallel</td><td>B3: L1 first, then L2</td><td>Patch log, or a documented negative result</td></tr>
+  <tr><td>5 &middot; Report and demo</td><td>~6 h</td><td>Write-up, slides, live demo</td><td>Submission</td></tr>
+</table>
+
+<h3>Deliverables</h3>
+<ul>
+  <li>A leaderboard with forget, worst-case recovery and utility per method and target, plus "% of weights changed" and cost.</li>
+  <li>Resurrection curves (recovery vs. relearning steps), the depth-ladder chart, and before/after J-lens heatmaps.</li>
+  <li>An edit log for agentic weight surgery, presented as an unlearning certificate.</li>
+  <li>A reproducible repo, with CuratorKIT provenance manifests and AuditKIT run fingerprints.</li>
+</ul>
+
+<h2><span class="num">12</span>Risks and mitigations</h2>
+<table>
+  <tr><th style="width:38%">Risk</th><th>Mitigation</th></tr>
+  <tr><td>LFM3-1.7B is too weak at calculus for there to be anything to remove</td><td>Check at phase 0; move the top level down to algebra or precalculus, or use simpler differentiation</td></tr>
+  <tr><td>LFM3 doesn't know the chosen book well</td><td>Check recall first; switch to another widely known book</td></tr>
+  <tr><td>Library incompatibilities from LFM3's custom code</td><td>Load the model ourselves and pass the object; set RMU <code>param_substring</code>, LoRA targets and the J-lens <code>Layout</code> (&sect;3)</td></tr>
+  <tr><td>GPU memory for full-parameter methods</td><td>LoRA on 24 GB, or one 80 GB GPU</td></tr>
+  <tr><td>J-lens is weak on a 1.7B model</td><td>Validate on the base model first; fall back to linear probes and the logit lens</td></tr>
+  <tr><td>Agentic surgery is costly or fails</td><td>Time-box it; L1 (agent chooses where, gradient does the update) is the fallback; a negative result is still reported</td></tr>
+  <tr><td>Gibberish passing as "forgetting"</td><td>Fluency and perplexity checks; the fact-presence scorer is separate from the refusal detector</td></tr>
+  <tr><td>Redistributing copyrighted text</td><td>Use existing research benchmark splits; don't publish raw passages</td></tr>
+</table>
+
+<h2><span class="num">13</span>Out of scope</h2>
+<ul class="small">
+  <li><b>CircuitKIT:</b> no TransformerLens port exists for LFM3's hybrid blocks, and 13 of its 24 layers have no attention heads. Future work: a CircuitKIT port, or repeating the study on a supported model (e.g. Qwen3-1.7B) as a cross-architecture check.</li>
+  <li><b>neuron-explorer:</b> it only supports Qwen3.5-4B and needs a vLLM fork on a CUDA 13 GPU pod.</li>
+  <li><b>Basic arithmetic as a target:</b> it is used only as a control level, because everything else depends on it.</li>
+</ul>
+
+<h2><span class="num">14</span>References</h2>
+<ol class="refs">
+  <li>Lexsi Labs. SafeTune, CuratorKIT, CircuitKIT, AuditKIT. <a href="https://github.com/Lexsi-Labs">github.com/Lexsi-Labs</a>; CuratorKIT paper: <a href="https://arxiv.org/abs/2606.21631">arXiv:2606.21631</a>.</li>
+  <li>Liquid AI. LFM3-1.7B model card. <a href="https://huggingface.co/LiquidAI/LFM3-1.7B">huggingface.co/LiquidAI/LFM3-1.7B</a>.</li>
+  <li>Anthropic (2026). A global workspace in language models. <a href="https://www.anthropic.com/research/global-workspace">anthropic.com/research/global-workspace</a>; paper: <a href="https://transformer-circuits.pub/2026/workspace/index.html">transformer-circuits.pub/2026/workspace</a>; code: <a href="https://github.com/anthropics/jacobian-lens">github.com/anthropics/jacobian-lens</a>.</li>
+  <li>Takehi, Teoh, Zhang, Khattab (2026). Sparks of Weight-Space Programming: LLMs can natively read &amp; write neural network weights. <a href="https://rikiyat.github.io/blog/weight-space-programming/">rikiyat.github.io/blog/weight-space-programming</a>; logs: <a href="https://github.com/RikiyaT/lm_understand-logs">github.com/RikiyaT/lm_understand-logs</a>.</li>
+  <li>Shi et al. (2024). MUSE: Machine Unlearning Six-Way Evaluation for Language Models.</li>
+  <li>Eldan &amp; Russinovich (2023). Who's Harry Potter? Approximate Unlearning in LLMs.</li>
+  <li>Li et al. (2024). The WMDP Benchmark: Measuring and Reducing Malicious Use With Unlearning (RMU).</li>
+  <li>Zhang et al. (2024). Negative Preference Optimization: From Catastrophic Collapse to Effective Unlearning.</li>
+  <li>Maini et al. (2024). TOFU: A Task of Fictitious Unlearning for LLMs.</li>
+  <li>Saxton et al. (2019). Analysing Mathematical Reasoning Abilities of Neural Models (<code>mathematics_dataset</code>).</li>
+  <li>Guo et al. (2024). Mechanistic Unlearning: Robust Knowledge Unlearning and Editing via Mechanistic Localization.</li>
+</ol>
+
+</body>
+</html>
