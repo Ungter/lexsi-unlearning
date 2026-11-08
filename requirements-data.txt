@@ -1,0 +1,8 @@
+sympy>=1.13
+numpy>=1.26
+torch>=2.4
+transformers>=5.12
+datasets>=3
+sentence-transformers>=3
+curatorkit[all]>=0.1.23
+python-dotenv>=1
