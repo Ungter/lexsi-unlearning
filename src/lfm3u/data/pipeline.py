@@ -34,7 +34,29 @@ def _fingerprint(root, paths):
     return {path.relative_to(root).as_posix(): sha256(path) for path in paths}
 
 
+def _synthetic(row):
+    """Code-generated math item or a variant of one (variants keep the parent's topic)."""
+    return row.get("topic") in math_gen.TOPICS and row.get("dataset") != math_gen.HENDRYCKS_ID
+
+
+def _math_keys(row):
+    """Duplicate keys for a generated math item: its normalised question, and (kind, answer, numbers used),
+    which catches reorderings such as 12 * 34 vs 34 * 12."""
+    question = " ".join(str(row.get("question", "")).split()).casefold()
+    answer = " ".join(str(row.get("answer", "")).split())
+    numbers = tuple(sorted(re.findall(r"\d+(?:\.\d+)?", question)))
+    return {("question", row["topic"], question), ("answer", row["topic"], row.get("kind"), answer, numbers)}
+
+
 def check_leakage(root, threshold=0.9, *, model=None):
+    """Drop test sources that leak from train/dev.
+
+    Generated math shares one prompt template, so sentence embeddings put unrelated items above 0.9 (a trial
+    dropped 94% of math test items). Generated math is therefore checked with exact math keys, on top of the
+    source-level split (calculus sources are keyed by the derivative). The embedding check covers everything
+    else: book, general retain, Hendrycks, and variants of those. Variants of generated math share their
+    parent's source ID and are dropped with it.
+    """
     root = ensure_writable(root)
     paths = data_files(root)
     records = {path: read_jsonl(path) for path in paths}
@@ -45,14 +67,27 @@ def check_leakage(root, threshold=0.9, *, model=None):
                 raise ValueError("every dataset item must have an explicit train, dev, or test split")
             parts[row["split"]].append(row)
     assert_disjoint(parts)
-    _, stats = leakage_filter(parts["test"], parts["train"] + parts["dev"], text_key=_text,
+    reference = parts["train"] + parts["dev"]
+    seen = set()
+    for row in reference:
+        if _synthetic(row) and not row.get("variant"):
+            seen |= _math_keys(row)
+    math_test = [row for row in parts["test"] if _synthetic(row) and not row.get("variant")]
+    math_dropped = sorted({source_id(row) for row in math_test if _math_keys(row) & seen})
+    _, stats = leakage_filter([row for row in parts["test"] if not _synthetic(row)],
+                              [row for row in reference if not _synthetic(row)], text_key=_text,
                               threshold=threshold, model=model)
-    dropped = set(stats["dropped_source_ids"])
+    stats["embedding_scope"] = "items that are not generated math (book, general retain, Hendrycks, their variants)"
+    stats["generated_math"] = {"rule": "exact duplicate question, or same kind, answer and numbers",
+                               "checked": len(math_test), "dropped": len(math_dropped),
+                               "dropped_source_ids": math_dropped}
+    dropped = set(stats["dropped_source_ids"]) | set(math_dropped)
     for path, rows in records.items():
         kept = [row for row in rows if row["split"] != "test" or source_id(row) not in dropped]
         if len(kept) != len(rows):
             write_jsonl(path, kept)
     stats["comparison_splits"] = ["train", "dev"]
+    stats["dropped_sources_total"] = len(dropped)
     stats["files"] = _fingerprint(root, paths)
     stats["counts"] = {path.relative_to(root).as_posix(): len(read_jsonl(path)) for path in paths}
     return write_json(root / "LEAKAGE.json", stats)

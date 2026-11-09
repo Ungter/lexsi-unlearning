@@ -28,6 +28,8 @@ TRIG_BOUNDS = (sp.Integer(0), sp.pi / 2, sp.pi)
 POLY_BOUNDS = (sp.Integer(0), sp.Integer(1), sp.Integer(2), sp.Integer(3))
 TRIG_SOLUTIONS = {"1/2": "pi/6", "sqrt(2)/2": "pi/4", "sqrt(3)/2": "pi/3"}
 HENDRYCKS_LEVEL = {1: 1, 2: 1, 3: 2, 4: 3, 5: 3}
+HENDRYCKS_ID = "EleutherAI/hendrycks_math"
+DEFINT_MAX = 10 ** 6  # reject definite integrals whose value is beyond this magnitude (e.g. exp(101))
 
 
 @dataclass(frozen=True)
@@ -77,6 +79,10 @@ def parse_expression(text):
             return sp.Rational(str(node.value))
         if isinstance(node, ast.Name) and node.id in ("x", "pi", "E"):
             return LOCALS[node.id]
+        if isinstance(node, (ast.Tuple, ast.List)) and node is tree.body:
+            if not 1 <= len(node.elts) <= 16:
+                raise ValueError("invalid answer list")
+            return sp.Tuple(*(visit(elt) for elt in node.elts))
         if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
             value = visit(node.operand)
             return -value if isinstance(node.op, ast.USub) else value
@@ -107,12 +113,122 @@ def parse_expression(text):
     return result
 
 
+_PARSE_ERRORS = (ValueError, TypeError, SyntaxError, ArithmeticError, RecursionError, AttributeError)
+
+
 def same_expr(a, b):
+    """Mathematical equality; answer lists such as [r1, r2] or (x, y) compare element-wise in order."""
     try:
-        diff = sp.simplify(parse_expression(a) - parse_expression(b))
-    except (ValueError, TypeError, SyntaxError, ArithmeticError, RecursionError):
+        left, right = parse_expression(a), parse_expression(b)
+        if isinstance(left, sp.Tuple) or isinstance(right, sp.Tuple):
+            return (isinstance(left, sp.Tuple) and isinstance(right, sp.Tuple) and len(left) == len(right)
+                    and all(sp.simplify(u - v) == 0 for u, v in zip(left, right)))
+        return sp.simplify(left - right) == 0
+    except _PARSE_ERRORS:
         return False
-    return diff == 0
+
+
+def _top_factors(node):
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Mult):
+        return _top_factors(node.left) + _top_factors(node.right)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+        return _top_factors(node.operand)
+    return [node]
+
+
+def is_factored(text):
+    """True if text is a product of a constant and primitive polynomials irreducible over the integers.
+
+    Factors are parsed one at a time because sympy distributes a number over a sum (8*(x + 8) -> 8*x + 64).
+    """
+    text = str(text).strip().replace("^", "**")
+    if len(text) > 4096:
+        return False
+    try:
+        factors = [parse_expression(ast.unparse(node)) for node in _top_factors(ast.parse(text, mode="eval").body)]
+        for factor in factors:
+            base, _ = factor.as_base_exp()
+            if not base.has(X):
+                continue
+            poly = sp.Poly(base, X)
+            if not poly.domain.is_ZZ or abs(poly.content()) != 1 or not poly.is_irreducible:
+                return False
+    except (*_PARSE_ERRORS, sp.PolynomialError):
+        return False
+    return True
+
+
+def is_expanded(text):
+    try:
+        expr = parse_expression(text)
+    except _PARSE_ERRORS:
+        return False
+    return sp.expand(expr) == expr
+
+
+def _is_polynomial(text):
+    try:
+        return bool(parse_expression(text).is_polynomial(X))
+    except _PARSE_ERRORS:
+        return False
+
+
+_TRIG_CALL = re.compile(r"\b(?:sin|cos|tan)\s*\(")
+_NUMBER = re.compile(r"[+-]?\s*\d+(?:\.\d+)?")
+
+
+def _trig_calls(text):
+    return len(_TRIG_CALL.findall(str(text)))
+
+
+# Kinds whose question is itself an expression equal to the answer: same_expr alone would accept an echo of
+# the question, so the prediction must also be in the requested form.
+FORM_CHECKS = {
+    "eval": lambda pred, row: bool(_NUMBER.fullmatch(pred)),
+    "log": lambda pred, row: bool(_NUMBER.fullmatch(pred)),
+    "trig": lambda pred, row: _trig_calls(pred) <= _trig_calls(row["answer"]),
+    "identity": lambda pred, row: _trig_calls(pred) <= _trig_calls(row["answer"]),
+    "simplify": lambda pred, row: _is_polynomial(pred),
+    "algebra": lambda pred, row: is_expanded(pred),
+    "factor": lambda pred, row: is_factored(pred),
+}
+_ASSIGNMENT = re.compile(r"\b([xy])\s*=\s*([^,;]+?)\s*(?=,|;|\bor\b|\band\b|$)")
+
+
+def answer_text(prediction):
+    """Light normalisation of a plain-text final answer: 'x = 3' -> '3', 'x = 1, y = 2' -> '(1, 2)',
+    'x = -2 or x = 5' -> '(-2, 5)', trailing '+ C' dropped. LaTeX extraction belongs to lfm3u.grade."""
+    text = str(prediction).strip().rstrip(".").strip()
+    text = re.sub(r"\s*\+\s*C\s*$", "", text)
+    pairs = _ASSIGNMENT.findall(text)
+    if len(pairs) == 2 and {name for name, _ in pairs} == {"x", "y"}:
+        values = dict(pairs)
+        return f"({values['x']}, {values['y']})"
+    if pairs and all(name == "x" for name, _ in pairs):
+        values = [value for _, value in pairs]
+        return values[0] if len(values) == 1 else "(" + ", ".join(values) + ")"
+    text = re.sub(r"\s+(?:or|and)\s+", ", ", text)
+    if "," in text and not text.startswith(("(", "[")):
+        text = f"({text})"
+    return text
+
+
+def check_answer(row, prediction):
+    """Grade a plain-text prediction against a generated item (to_alpaca row).
+
+    Returns None for Hendrycks items, whose LaTeX answers need math-verify (lfm3u.grade).
+    """
+    kind = row.get("kind")
+    if kind == "latex":
+        return None
+    pred = answer_text(prediction)
+    if kind == "integral":
+        try:
+            return sp.simplify(sp.diff(parse_expression(pred), X) - parse_expression(row["expr"])) == 0
+        except _PARSE_ERRORS:
+            return False
+    form = FORM_CHECKS.get(kind)
+    return same_expr(pred, row["answer"]) and (form is None or bool(form(pred, row)))
 
 
 def last_boxed(text):
@@ -203,7 +319,7 @@ def _calc(rng, level):
     f = sp.diff(F, X)
     a, b = sorted(rng.sample(list(POLY_BOUNDS), 2))
     value = F.subs(X, b) - F.subs(X, a)
-    if value.has(sp.zoo, sp.nan, sp.oo, -sp.oo) or not value.is_number:
+    if value.has(sp.zoo, sp.nan, sp.oo, -sp.oo) or not value.is_number or abs(complex(sp.N(value))) > DEFINT_MAX:
         return None
     metadata.update(lower=sp.sstr(a), upper=sp.sstr(b))
     return ("defint", (f"Evaluate the definite integral of {sp.sstr(f)} with respect to x "
@@ -247,8 +363,9 @@ def _algebra(rng, level):
                 roots = sorted((r1, r2))
                 return ("quadratic", f"Solve {sp.sstr(poly)} = 0 for x. List all roots in increasing order.",
                         f"[{roots[0]}, {roots[1]}]", sp.sstr(poly))
+            # one Mul call: a * (x - r1) would distribute a over the sum and hide the common factor
             return ("factor", f"Factor {sp.sstr(poly)} over the integers.",
-                    sp.sstr(a * (X - r1) * (X - r2)), sp.sstr(poly))
+                    sp.sstr(sp.Mul(a, X - r1, X - r2)), sp.sstr(poly))
         a, b, c = _sgn(rng, 1, 20), _sgn(rng, 1, 50), _sgn(rng, 1, 50)
         return ("algebra", f"Expand ({a}*x{_plus(b)})*(x{_plus(c)}).",
                 sp.sstr(sp.expand((a * X + b) * (X + c))), "")
@@ -261,7 +378,8 @@ def _algebra(rng, level):
         r, u = p * x0 + q * y0, s * x0 + w * y0
         q1 = f"{p}*x {'+' if q >= 0 else '-'} {abs(q)}*y = {r}"
         q2 = f"{s}*x {'+' if w >= 0 else '-'} {abs(w)}*y = {u}"
-        return ("solve", f"Solve the system: {q1}, {q2} for x and y.", f"x = {x0}, y = {y0}", "")
+        return ("solve", f"Solve the system: {q1}, {q2} for x and y. Give the answer as an ordered pair (x, y).",
+                f"({x0}, {y0})", "")
     r, a, b = _sgn(rng, 2, 50), _mag(rng, 1, 12), rng.randint(-30, 30)
     numerator = sp.expand((X - r) * (a * X + b))
     return ("simplify", f"Simplify ({sp.sstr(numerator)})/(x - ({r})) for x != {r}.",
@@ -335,7 +453,9 @@ def generate(topic, level, n, seed=0, *, excluded_sources=()):
             continue
         kind, question, answer, expr = rec[:4]
         metadata = rec[4] if len(rec) > 4 else {}
-        source = metadata.get("primitive") if topic == "calculus" else question
+        # calculus items are keyed by the derivative f = F' (the diff answer, the integrand otherwise), so F and
+        # F + c cannot land in different splits as the same problem
+        source = (answer if kind == "diff" else expr) if topic == "calculus" else question
         digest = hashlib.sha256(f"{topic}|{source}".encode()).hexdigest()[:20]
         sid = f"{topic}-{digest}"
         if sid in seen:
@@ -350,7 +470,7 @@ def load_hendrycks_precalc(split="train"):
     from datasets import load_dataset
 
     items = []
-    for i, row in enumerate(load_dataset("EleutherAI/hendrycks_math", "precalculus", split=split)):
+    for i, row in enumerate(load_dataset(HENDRYCKS_ID, "precalculus", split=split)):
         answer = last_boxed(row["solution"])
         digits = re.search(r"\d+", str(row["level"]))
         if not answer or not digits or int(digits.group()) not in HENDRYCKS_LEVEL:
@@ -387,6 +507,6 @@ def build_math(root, seed=0, sizes=None, *, include_hendrycks=False, topics=TOPI
             parts = group_split(rows, {"train": 0.8, "dev": 0.2}, seed=seed) if original_split == "train" else {"test": rows}
             for name, part in parts.items():
                 write_jsonl(root / "precalculus" / "hendrycks" / f"{name}.jsonl",
-                            (dict(row, split=name, dataset="EleutherAI/hendrycks_math") for row in part))
+                            (dict(row, split=name, dataset=HENDRYCKS_ID) for row in part))
                 counts[f"precalculus/hendrycks/{name}"] = len(part)
     return counts

@@ -124,6 +124,40 @@ def group_split(rows, fractions=None, key=source_id, seed=0):
     return out
 
 
+def weighted_group_split(rows, weight, fractions=None, key=source_id, seed=0):
+    """Group split that targets the fractions by total weight (e.g. text length) instead of group count.
+
+    Groups are assigned largest first to the split furthest below its target share, so a few very large
+    documents cannot push most of the text into dev or test. The seed only breaks ties between equal weights.
+    """
+    rows = list(rows)
+    fractions = FRACTIONS if fractions is None else fractions
+    if not fractions or any(not math.isfinite(v) or v < 0 for v in fractions.values()):
+        raise ValueError("split fractions must be finite and nonnegative")
+    if not math.isclose(sum(fractions.values()), 1.0, abs_tol=1e-9):
+        raise ValueError("split fractions must sum to one")
+    sizes = {}
+    for row in rows:
+        w = weight(row)
+        if not math.isfinite(w) or w < 0:
+            raise ValueError("weights must be finite and nonnegative")
+        sizes[key(row)] = sizes.get(key(row), 0) + w
+    groups = sorted(sizes, key=lambda value: (str(type(value)), str(value)))
+    random.Random(seed).shuffle(groups)
+    groups.sort(key=lambda group: sizes[group], reverse=True)
+    total = sum(sizes.values())
+    filled = {name: 0 for name in fractions}
+    assignments = {}
+    for group in groups:
+        name = max(fractions, key=lambda n: (fractions[n] * total - filled[n], fractions[n]))
+        assignments[group] = name
+        filled[name] += sizes[group]
+    out = {name: [] for name in fractions}
+    for row in rows:
+        out[assignments[key(row)]].append(row)
+    return out
+
+
 def assert_disjoint(parts, key=source_id):
     owners = {}
     for name, rows in parts.items():

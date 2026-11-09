@@ -6,6 +6,7 @@ from .splits import (
     assert_disjoint,
     ensure_writable,
     group_split,
+    weighted_group_split,
     write_jsonl,
 )
 
@@ -91,17 +92,28 @@ def load_privleak(split):
             for row in _load("privleak", split)]
 
 
-def _remove_passages(text, passages):
+def _remove_passages(text, passages, found=None):
+    """Cut every occurrence of each passage's prompt and target out of text.
+
+    Matching ignores whitespace: MUSE verbmem prompts differ from raw/forget in line breaks and spacing, so only
+    29/100 prompts are exact substrings while all 100 match once whitespace is ignored. found, if given,
+    collects the ids of passages that were located.
+    """
+    keep = [i for i, ch in enumerate(text) if not ch.isspace()]
+    compact = "".join(text[i] for i in keep)
     intervals = []
     for row in passages:
         for passage in (row["prompt"], row["target"]):
+            needle = "".join(str(passage).split())
             start = 0
-            while passage:
-                found = text.find(passage, start)
-                if found < 0:
+            while needle:
+                hit = compact.find(needle, start)
+                if hit < 0:
                     break
-                intervals.append((found, found + len(passage)))
-                start = found + len(passage)
+                intervals.append((keep[hit], keep[hit + len(needle) - 1] + 1))
+                if found is not None:
+                    found.add(row["id"])
+                start = hit + len(needle)
     merged = []
     for start, end in sorted(intervals):
         if merged and start <= merged[-1][1]:
@@ -127,18 +139,27 @@ def build_book(root, tok, max_len=MAX_LEN, seed=0, *, include_privleak=False):
         write_jsonl(root / f"verbmem_forget_{name}.jsonl", (dict(row, split=name) for row in rows))
         counts[f"verbmem_forget_{name}"] = len(rows)
     heldout = verb_parts["dev"] + verb_parts["test"]
+    removed = set()
     for dataset_split in RAW_SPLITS:
         documents = []
         for row in _load("raw", dataset_split):
             text = str(_field(row, ("text", "content")))
             sid = _id("raw", text)
             documents.append({"text": text, "source_id": sid})
-        parts = group_split(documents, seed=seed)
+        # raw/forget has only 4 documents (books), so a 60/15/25 document split would hold half of the forget corpus
+        # out of unlearning. Train on all of it (as MUSE does); forget dev/test are the held-out knowmem/verbmem items.
+        # Retain documents vary widely in length (one raw/retain2 document is 71% of its text), so they are split
+        # by text length rather than document count.
+        if dataset_split == "forget":
+            parts = {"train": documents}
+        else:
+            parts = weighted_group_split(documents, weight=lambda doc: len(doc["text"]), seed=seed)
         assert_disjoint(parts)
         for name, docs in parts.items():
             chunks = []
             for doc in docs:
-                fragments = _remove_passages(doc["text"], heldout) if name == "train" and dataset_split == "forget" else [doc["text"]]
+                fragments = (_remove_passages(doc["text"], heldout, removed) if name == "train" and dataset_split == "forget"
+                             else [doc["text"]])
                 index = 0
                 for fragment in fragments:
                     for ids in _windows(fragment, tok, max_len):
@@ -151,6 +172,8 @@ def build_book(root, tok, max_len=MAX_LEN, seed=0, *, include_privleak=False):
                         index += 1
             write_jsonl(root / f"raw_{dataset_split}_{name}.jsonl", chunks)
             counts[f"raw_{dataset_split}_{name}"] = len(chunks)
+    counts["verbmem_heldout_passages_cut_from_raw_forget"] = len(removed)
+    counts["verbmem_heldout_passages_not_in_raw_forget"] = len({row["id"] for row in heldout} - removed)
     for target in ("forget", "retain"):
         icl = load_knowmem(f"{target}_qa_icl")
         rows = load_knowmem(f"{target}_qa")
