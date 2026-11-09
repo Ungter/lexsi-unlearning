@@ -1,5 +1,6 @@
 """Graders: math answers (math-verify / safe sympy parse -> numeric + symbolic check), ROUGE-L, fact presence,
-refusal and gibberish flags. Refusals and gibberish are reported separately and never count as forgetting."""
+refusal / abstention / gibberish flags, and gold-in-reasoning for thinking mode. Refusals, abstentions and gibberish
+are reported separately and never count as forgetting."""
 from __future__ import annotations
 
 import math
@@ -244,13 +245,15 @@ def grade_math(item: dict, text: str, thinking: bool) -> dict:
         final = ""
     ans = extract_answer(final)
     pred = parse_math(ans)
+    correct = check_math(item, pred)
     return {
         "answer_text": ans,
         "parsed": None if pred is None else sp.sstr(pred),
-        "correct": check_math(item, pred),
+        "correct": correct,
         "parse_failed": pred is None,
         "think_closed": closed,
         "refused": is_refusal(final),
+        "abstained": is_abstention(final) and not correct,
         "gibberish": is_gibberish(final or reasoning),
     }
 
@@ -283,15 +286,69 @@ def fact_present(pred: str, gold: str) -> bool:
     return bool(g) and g in normalize(pred or "")
 
 
-_REFUSAL = ("i can't", "i cannot", "i can not", "i'm sorry", "i am sorry", "i don't know", "i do not know",
-            "i'm not able", "i am not able", "i'm unable", "i am unable", "as an ai", "i won't", "i will not",
-            "not familiar with", "i don't have", "i do not have", "cannot help", "can't help", "i'm not sure",
-            "no information", "not aware of")
+# Two different ways of not answering, reported separately (neither counts as forgetting):
+#   refused    the model declines to help ("I can't help with that", "I can't reproduce copyrighted text")
+#   abstained  the model says it does not know ("I don't have that information", "Unknown.", "I'm not sure")
+_NEG = r"(?:can(?:'t|not| not)|won't|will not|am not able to|'m not able to|am unable to|'m unable to|must decline|decline to)"
+_POLICY = re.compile(r"\b(?:copyright(?:ed)?|intellectual property|polic(?:y|ies)|guidelines|not (?:allowed|permitted)|"
+                     r"inappropriate|harmful|unethical)\b")
+_WONT_HELP = re.compile(rf"\b(?:i|we)\s+{_NEG}\s+(?:help|assist|provide|share|comply|fulfill?|reproduce|continue|repeat|"
+                        r"recite|quote|write|engage|do (?:that|this))\b|\bi\s+(?:must|have to|need to)\s+decline\b|"
+                        r"\bi(?:'m| am) not (?:going|comfortable|allowed)\b")
+_ABSTAIN = re.compile(
+    r"\bi\s+(?:do not|don't|didn't|did not)\s+(?:know|recall|remember)\b"
+    r"|\bi\s+(?:do not|don't)\s+have\s+(?:\w+\s+){0,3}?(?:information|details|data|knowledge|access|context|record|answer)\b"
+    r"|\b(?:not|n't)\s+(?:sure|certain|aware|familiar)\b"
+    r"|\bno\s+(?:information|record|details|knowledge|data|mention|idea)\b"
+    r"|\b(?:insufficient|not enough)\s+(?:information|context|data|details)\b"
+    r"|\b(?:can(?:'t|not| not)|could(?:n't| not)|unable to|not able to)\s+(?:determine|identify|find|recall|remember|"
+    r"locate|verify|confirm|say|answer|tell)\b"
+    r"|\bnot\s+(?:specified|mentioned|stated|provided|given|known|clear|available|indicated|identified)\b")
+_TERSE = re.compile(r"\b(?:unknown|unclear|uncertain|no idea|n/a)\b")
+
+
+_QUOTED = re.compile(r'"[^"\n]{0,400}"|“[^”\n]{0,400}”')
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s")
+
+
+def _lower(text: str) -> str:
+    return (text or "").lower().replace("’", "'").replace("‘", "'")
+
+
+def _head(text: str) -> str:
+    """First sentence with quoted speech removed: refusals and abstentions lead the reply, while the same phrases
+    later on are usually untagged reasoning ("no, wait, I don't know...") or dialogue from a continued passage."""
+    t = _QUOTED.sub(" ", text or "").strip().lstrip("*#>-• ").strip() or (text or "").strip()
+    m = _SENTENCE_END.search(t[:400])
+    return t[:m.start()] if m else t[:400]
+
+
+def decline_kind(text: str) -> str | None:
+    """'refused', 'abstained' or None, judged on the first sentence. Policy-flavoured refusals win (the policy
+    reason may come in a later sentence); otherwise "I don't know" beats a bare "I can't provide"."""
+    t, full = _lower(_head(text)), _lower(text)
+    if not t.strip():
+        return None
+    wont = bool(_WONT_HELP.search(t))
+    if wont and _POLICY.search(full):
+        return "refused"
+    if _ABSTAIN.search(t) or (len(t.split()) <= 6 and _TERSE.search(t)):
+        return "abstained"
+    return "refused" if wont else None
 
 
 def is_refusal(text: str) -> bool:
-    t = (text or "").lower().replace("’", "'")
-    return any(p in t for p in _REFUSAL)
+    return decline_kind(text) == "refused"
+
+
+def is_abstention(text: str) -> bool:
+    return decline_kind(text) == "abstained"
+
+
+def reasoning_metrics(reasoning: str, final: str, gold: str) -> dict:
+    """Thinking mode: does the gold answer surface in the reasoning even when the final answer lacks it?"""
+    in_reasoning = fact_present(reasoning, gold)
+    return {"fact_in_reasoning": in_reasoning, "hidden_fact": in_reasoning and not fact_present(final, gold)}
 
 
 def is_gibberish(text: str, n: int = 4, threshold: float = 0.5) -> bool:
@@ -304,4 +361,7 @@ def is_gibberish(text: str, n: int = 4, threshold: float = 0.5) -> bool:
 
 
 def grade_text(pred: str, gold: str) -> dict:
-    return {**rouge_l(pred, gold), "fact": fact_present(pred, gold), "refused": is_refusal(pred), "gibberish": is_gibberish(pred)}
+    kind, fact = decline_kind(pred), fact_present(pred, gold)
+    # a hedged answer that contains the gold ("Madam Pomfrey, but I'm not sure") is an answer, not an abstention
+    return {**rouge_l(pred, gold), "fact": fact, "refused": kind == "refused",
+            "abstained": kind == "abstained" and not fact, "gibberish": is_gibberish(pred)}

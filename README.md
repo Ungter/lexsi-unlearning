@@ -33,3 +33,18 @@ Use `--privleak` for optional MUSE membership-inference data, `--no-freeze` to i
 `lfm3u.data.batches` produces SafeTune tensors, masks QA prompt labels, retains all raw token windows, and provides `to_device` for low-level trainers. QA sequences that cannot fit a complete answer raise an error instead of silently losing supervision. `target_files` selects forget/retain training files for the calculus target or depth-ladder controls.
 
 Frozen files cannot be changed through the data writers. Training loaders reject frozen test paths; audit code must explicitly use `read_jsonl(path, allow_test=True)`. Generated data, book text, results, weights, and secrets are gitignored.
+
+## Baselines and the MUSE target model (Vast.ai)
+
+GPU jobs run on Vast.ai through `scripts/vast/launch.py`. It reads `HF_API`, `TIGRIS_ACCESS_ID`, `TIGRIS_SECRET` and `ENDPOINT` from `.env`, rents the fastest single GPU under `--max-dph` (default $2/h) with at least 2 Gbps down, and mirrors results to `s3://lexsi-hackathon/runs/<run_id>/`.
+
+```powershell
+python scripts/vast/launch.py up --job baseline          # scripts/01_baseline_eval.py on LFM3-1.7B -> results/base/
+python scripts/vast/launch.py up --job finetune          # target + retain-only fine-tunes, then their baselines
+python scripts/vast/launch.py up --job baseline --model-uri s3://lexsi-hackathon/models/<run_id>/lfm3-muse-target --eval-name target
+python scripts/vast/launch.py status <run_id>            # instance state and the tail of run.log
+python scripts/vast/launch.py fetch <run_id>             # results/runs/<run_id>/, merged into results/<name>/
+python scripts/vast/launch.py down <run_id>              # destroy the instance
+```
+
+The base model barely knows the books, so the book target follows the MUSE protocol: `scripts/03_finetune.py` fine-tunes LFM3-1.7B on `raw/forget` + `raw/retain1` + `raw/retain2` (the **target** model, shared by both unlearning targets) and on the retain text only (the **retain-only** reference, the "never read it" floor). It trains on the full forget text, including the passages behind the held-out test items; unlearning later uses `data/book/raw_forget_train.jsonl`, which has them cut out. Self-replay from `scripts/02_replay.py` (the base model's own Dolly and calculus answers) is mixed in to keep chat, thinking and calculus intact. Checkpoints are stored at `s3://lexsi-hackathon/models/<run_id>/lfm3-muse-{target,retain}/`.

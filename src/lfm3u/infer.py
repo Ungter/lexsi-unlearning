@@ -62,7 +62,8 @@ class Generator:
 
             self.hf = AutoModelForCausalLM.from_pretrained(model, trust_remote_code=True, dtype=torch.bfloat16, device_map="cuda").eval()
             self.backend = "hf"
-        eos = {self.tok.eos_token_id, self.tok.convert_tokens_to_ids("<|im_end|>")}
+        self.im_end_id = self.tok.convert_tokens_to_ids("<|im_end|>")
+        eos = {self.tok.eos_token_id, self.im_end_id}
         self.eos_ids = {i for i in eos if isinstance(i, int) and i >= 0}
         self.strip = tuple(s for s in (*_STRIP, self.tok.eos_token, self.tok.pad_token) if s)
 
@@ -102,7 +103,7 @@ class Generator:
             kw["stop"] = list(s.stop)
         res = self.llm.generate([{"prompt_token_ids": p} for p in prompts], SamplingParams(**kw), use_tqdm=False)
         return [{"text": self._clean(r.outputs[0].text), "n_tokens": len(r.outputs[0].token_ids),
-                 "finish_reason": r.outputs[0].finish_reason} for r in res]
+                 "token_ids": list(r.outputs[0].token_ids), "finish_reason": r.outputs[0].finish_reason} for r in res]
 
     def _hf(self, prompts, s: Sampling, bs: int = 32):
         import torch
@@ -135,5 +136,6 @@ class Generator:
                 text = self.tok.decode(new[:n], skip_special_tokens=False)
                 for st in s.stop:
                     text = text.split(st)[0]
-                out[i] = {"text": self._clean(text), "n_tokens": n, "finish_reason": "length" if n >= s.max_tokens else "stop"}
+                out[i] = {"text": self._clean(text), "n_tokens": n, "token_ids": new[:n + 1] if n < len(new) else new[:n],
+                          "finish_reason": "length" if n >= s.max_tokens else "stop"}
         return out

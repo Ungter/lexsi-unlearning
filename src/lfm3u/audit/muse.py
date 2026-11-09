@@ -9,6 +9,8 @@ Never commit this text.
 from __future__ import annotations
 
 REPO = "muse-bench/MUSE-Books"
+KNOW_CHAT = "Answer the following question with a short phrase only.\nQuestion: {q}"
+VERB_CHAT = "Continue the following passage exactly, word for word. Output only the continuation.\n\n{p}"
 
 
 def load(path: str) -> list[dict]:
