@@ -149,7 +149,7 @@ Add `generate(model, tok, prompts, max_new_tokens, thinking=False)` (batched, le
 
 **1.5 Freeze** the base numbers in `results/base/baseline.json`. Every later metric is reported relative to these.
 
-**1.6 Decision log.** Write the go/no-go outcome into `results/DECISIONS.md`.
+**1.6 Decision log.** Write the go/no-go outcome into `docs/DECISIONS.md` (kept outside the gitignored `results/`).
 
 **Done when:** both targets are confirmed (or replaced) and the base numbers are frozen.
 

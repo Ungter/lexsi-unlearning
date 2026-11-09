@@ -21,6 +21,7 @@ class Sampling:
     repetition_penalty: float = 1.0
     stop: tuple[str, ...] = field(default_factory=tuple)
     seed: int = 0
+    allowed_token_ids: tuple[int, ...] = field(default_factory=tuple)  # restrict sampling (e.g. MMLU letters)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -101,12 +102,45 @@ class Generator:
             kw["top_k"] = s.top_k
         if s.stop:
             kw["stop"] = list(s.stop)
+        if s.allowed_token_ids:
+            kw["allowed_token_ids"] = list(s.allowed_token_ids)
         res = self.llm.generate([{"prompt_token_ids": p} for p in prompts], SamplingParams(**kw), use_tqdm=False)
         return [{"text": self._clean(r.outputs[0].text), "n_tokens": len(r.outputs[0].token_ids),
                  "token_ids": list(r.outputs[0].token_ids), "finish_reason": r.outputs[0].finish_reason} for r in res]
 
+    def prompt_logprobs(self, prompts: list[list[int]]) -> list[list[float]]:
+        """Log-probability of every prompt token after the first (teacher-forced), for perplexity."""
+        t0 = time.time()
+        if self.backend == "vllm":
+            from vllm import SamplingParams
+
+            res = self.llm.generate([{"prompt_token_ids": p} for p in prompts],
+                                    SamplingParams(max_tokens=1, temperature=0.0, prompt_logprobs=0), use_tqdm=False)
+            out = [[lp[t].logprob for lp, t in zip(r.prompt_logprobs[1:], p[1:])] for r, p in zip(res, prompts)]
+        else:
+            import torch
+
+            out = []
+            with torch.no_grad():
+                for p in prompts:
+                    ids = torch.tensor([p], device="cuda")
+                    logits = self.hf(input_ids=ids).logits[0, :-1].float()
+                    out.append(torch.log_softmax(logits, -1).gather(1, ids[0, 1:, None])[:, 0].tolist())
+        print(f"[infer] prompt logprobs for {len(prompts)} prompts in {time.time() - t0:.1f}s", flush=True)
+        return out
+
     def _hf(self, prompts, s: Sampling, bs: int = 32):
         import torch
+
+        if s.allowed_token_ids and s.max_tokens == 1:  # one restricted step: argmax over the allowed ids
+            allowed = torch.tensor(s.allowed_token_ids, device="cuda")
+            res = []
+            with torch.no_grad():
+                for p in prompts:
+                    logits = self.hf(input_ids=torch.tensor([p], device="cuda")).logits[0, -1]
+                    tid = int(allowed[logits[allowed].argmax()])
+                    res.append({"text": self.tok.decode([tid]), "n_tokens": 1, "token_ids": [tid], "finish_reason": "length"})
+            return res
 
         pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else self.tok.eos_token_id
         order = sorted(range(len(prompts)), key=lambda i: -len(prompts[i]))

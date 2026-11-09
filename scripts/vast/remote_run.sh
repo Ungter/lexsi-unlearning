@@ -1,30 +1,42 @@
 #!/usr/bin/env bash
 # Runs on the Vast instance; started by the onstart command from scripts/vast/launch.py.
 # Env: HF_TOKEN, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_ENDPOINT_URL_S3, RUN_ID, S3_PREFIX, CODE_SHA,
-#      JOB (baseline | finetune), EVAL_ARGS, FT_ARGS, MODEL_URI + EVAL_NAME (baseline of a checkpoint in the bucket),
-#      REPLAY_URI (finetune: reuse a self-replay jsonl instead of generating one)
+#      JOB: one of the jobs below, or several joined with "+" (run in order)
+#        baseline  scripts/01_baseline_eval.py on LFM3-1.7B, or on MODEL_URI -> results/EVAL_NAME
+#        eval      scripts/01_baseline_eval.py on each EVAL_MODELS entry ("name=ref,name=ref"; ref = s3:// prefix or
+#                  HF id) -> results/<name>
+#        finetune  self-replay (or REPLAY_URI), fine-tune target + retain-only (FT_ARGS), upload, evaluate
+#        script    run each JOB_SCRIPT (comma list of repo paths) with SCRIPT_ARGS; scripts may
+#                  "source scripts/vast/common.sh" for stage/fail/sync_up/fetch_model/upload_model
+#      EVAL_ARGS apply to every 01_baseline_eval.py call.
 # Everything under results/ is mirrored to $S3_PREFIX/results; checkpoints go to s3://<bucket>/models/$RUN_ID/.
 set -uo pipefail
 cd /root/lexsi
-export PYTHONPATH=/root/lexsi/src PYTHONUNBUFFERED=1 HF_XET_HIGH_PERFORMANCE=1 PIP_BREAK_SYSTEM_PACKAGES=1
-PY=python3
+source scripts/vast/common.sh
 JOB=${JOB:-baseline}
-BUCKET_URI=$(echo "$S3_PREFIX" | cut -d/ -f1-3)
-stamp() { date -u +%FT%TZ; }
 mark() { echo "$1" > STATUS; $PY -m lfm3u.storage put STATUS "$S3_PREFIX/STATUS" >/dev/null 2>&1 || true; }
-sync_up() {
-  [ -d results ] && $PY -m lfm3u.storage upload results "$S3_PREFIX/results" >/dev/null 2>&1
-  $PY -m lfm3u.storage put run.log "$S3_PREFIX/run.log" >/dev/null 2>&1 || true
+# AUTO_DESTROY=1 (launch.py default): the instance destroys itself with its per-instance key once results are synced
+self_destroy() {
+  if [ "${AUTO_DESTROY:-0}" = "1" ] && [ -n "${CONTAINER_ID:-}" ] && [ -n "${CONTAINER_API_KEY:-}" ]; then
+    echo "== $(stamp) self-destroy instance $CONTAINER_ID"
+    $PY -m lfm3u.storage put run.log "$S3_PREFIX/run.log" >/dev/null 2>&1
+    vastai destroy instance "$CONTAINER_ID" -y --api-key "$CONTAINER_API_KEY" \
+      || echo y | vastai destroy instance "$CONTAINER_ID" --api-key "$CONTAINER_API_KEY"
+  elif [ "${AUTO_DESTROY:-0}" = "1" ]; then
+    echo "== self-destroy skipped: CONTAINER_ID/CONTAINER_API_KEY not set"
+  fi
 }
-fail() { echo "== $(stamp) FAILED: $1"; kill "${SYNC:-0}" 2>/dev/null; sync_up; mark "FAILED $1"; exit 1; }
-stage() { echo "== $(stamp) $1"; }
+fail() { echo "== $(stamp) FAILED: $1"; kill "${SYNC:-0}" 2>/dev/null; sync_up; mark "FAILED $1"; self_destroy; exit 1; }
+cache_sig() { find /root/.cache/vllm /root/.cache/flashinfer -type f -printf '%s %T@\n' 2>/dev/null | md5sum | cut -c1-32; }
 
 echo "== $(stamp) setup on $(hostname)"
 nvidia-smi --query-gpu=name,memory.total,driver_version --format=csv,noheader
-DEPS='math-verify[antlr4_13_2] rouge-score boto3 pyarrow'
+DEPS='math-verify[antlr4_13_2] rouge-score boto3 pyarrow langdetect immutabledict nltk vastai'
 if ! $PY -m pip install -q --no-cache-dir $DEPS; then
   uv pip install --system -q $DEPS || { echo "dependency install failed"; exit 1; }
 fi
+# IFEval checkers only (lfm3u.audit.utility imports them without the rest of the harness)
+$PY -m pip install -q --no-cache-dir --no-deps lm-eval || echo "lm-eval install failed (ifeval tasks will fail)"
 mark RUNNING
 ( while true; do sleep 30; $PY -m lfm3u.storage put run.log "$S3_PREFIX/run.log" >/dev/null 2>&1; done ) &
 SYNC=$!
@@ -37,9 +49,11 @@ CACHE_URI="$(echo "$S3_PREFIX" | cut -d/ -f1-3)/cache/vllm-cf5cea2-$GPU_KEY.tgz"
 if $PY -m lfm3u.storage get "$CACHE_URI" /tmp/cache.tgz >/dev/null 2>&1; then
   tar xzf /tmp/cache.tgz -C / && echo "restored compile cache $CACHE_URI"
 fi
+CACHE_BEFORE=$(cache_sig)
 
 mkdir -p results
-case "$JOB" in
+for J in ${JOB//+/ }; do
+case "$J" in
   baseline)
     MODEL=() NAME=base
     if [ -n "${MODEL_URI:-}" ]; then
@@ -49,6 +63,24 @@ case "$JOB" in
     fi
     stage "eval $NAME ${EVAL_ARGS:-}"
     $PY scripts/01_baseline_eval.py --out "results/$NAME" --run-id "$RUN_ID" "${MODEL[@]}" ${EVAL_ARGS:-} || fail "eval $NAME"
+    ;;
+  eval)
+    IFS=',' read -ra ENTRIES <<< "${EVAL_MODELS:?EVAL_MODELS is required for JOB=eval}"
+    for E in "${ENTRIES[@]}"; do
+    NAME=${E%%=*} REF=${E#*=}
+    stage "eval $NAME ($REF) ${EVAL_ARGS:-}"
+    MP=$(fetch_model "$REF" "models/$NAME") || fail "download $REF"
+    $PY scripts/01_baseline_eval.py --model "$MP" --out "results/$NAME" --run-id "$RUN_ID" ${EVAL_ARGS:-} || fail "eval $NAME"
+    sync_up
+    done
+    ;;
+  script)
+    IFS=',' read -ra SCRIPTS <<< "${JOB_SCRIPT:?JOB_SCRIPT is required for JOB=script}"
+    for S in "${SCRIPTS[@]}"; do
+    stage "script $S ${SCRIPT_ARGS:-}"
+    bash "$S" ${SCRIPT_ARGS:-} || fail "script $S"
+    sync_up
+    done
     ;;
   finetune)
     mkdir -p work models results/finetune
@@ -80,13 +112,17 @@ case "$JOB" in
       sync_up
     done
     ;;
-  *) fail "unknown JOB=$JOB" ;;
+  *) fail "unknown JOB=$J" ;;
 esac
+done
 
 stage "done"
-if tar czf /tmp/cache.tgz --ignore-failed-read -C / root/.cache/flashinfer root/.cache/vllm 2>/dev/null; then
+if [ "$(cache_sig)" = "$CACHE_BEFORE" ]; then
+  echo "compile cache unchanged (no new vLLM compilation); not re-uploading"
+elif tar czf /tmp/cache.tgz --ignore-failed-read -C / root/.cache/flashinfer root/.cache/vllm 2>/dev/null; then
   $PY -m lfm3u.storage put /tmp/cache.tgz "$CACHE_URI" && echo "saved compile cache $CACHE_URI"
 fi
 kill $SYNC 2>/dev/null
 sync_up
 mark DONE
+self_destroy

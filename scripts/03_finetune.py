@@ -9,6 +9,12 @@ Self-replay rows from scripts/02_replay.py (the base model's own chat, thinking 
 completion only) are mixed in so chat format, reasoning and calculus survive the raw-text training. 4% of them are
 held out as a drift probe.
 
+General-text anchor (--anchor, --anchor-tokens): FineWeb documents (s3://lexsi-hackathon/eval/fineweb_anchor.jsonl,
+disjoint from the 1,500-doc eval/J-lens sample) drawn fresh each epoch. With --anchor-loss kl (default) the loss on
+them is KL(base || model) against a frozen bf16 copy of the starting model, so general language modelling stays where
+it was while the book text is memorised; --anchor-loss ce uses plain LM loss. The last --anchor-val documents are held
+out as a FineWeb NLL probe.
+
 Full-parameter training: fp32 master weights, bf16 autocast, AdamW, warmup + cosine. Book text is cut into
 [BOS] + (seq_len - 1)-token windows whose boundaries shift every epoch. Probes run before training and after every
 epoch: greedy knowmem/verbmem generations scored like scripts/01_baseline_eval.py, and NLL on verbmem continuations,
@@ -54,6 +60,18 @@ def doc_windows(ids: list[int], length: int, offset: int, bos: int) -> list[list
 
 def book_items(docs: list[list[int]], length: int, offset: int, bos: int) -> list[dict]:
     return [{"ids": w, "start": 1} for d in docs for w in doc_windows(d, length, offset, bos)]
+
+
+def load_anchor(path: str | None, tok, seq_len: int, bos: int, n_val: int) -> tuple[list[dict], list[dict]]:
+    if not path:
+        return [], []
+    items = []
+    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
+        if line.strip():
+            ids = tok(json.loads(line)["text"], add_special_tokens=False)["input_ids"][:seq_len - 1]
+            if len(ids) >= 16:
+                items.append({"ids": [bos, *ids], "start": 1, "kind": "anchor"})
+    return items[:len(items) - n_val], items[len(items) - n_val:]
 
 
 def chat_ids(tok, user: str, thinking: bool = False) -> list[int]:
@@ -132,6 +150,25 @@ def ce_sum(model, ids, att, lab):
     keep = target != -100
     logits = model.lm_head(hidden[:, :-1][keep])
     return F.cross_entropy(logits.float(), target[keep], reduction="sum"), int(keep.sum())
+
+
+def kl_sum(model, base, ids, att, chunk: int = 2048):
+    """Sum over real next-token positions of KL(base || model); the LM heads run in chunks to bound logit memory."""
+    import torch
+    import torch.nn.functional as F
+
+    hidden = model.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
+    with torch.no_grad():
+        bhidden = base.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
+    keep = (att[:, 1:] if att is not None else torch.ones_like(ids[:, 1:])).bool()
+    h, bh = hidden[:, :-1][keep], bhidden[:, :-1][keep]
+    total = hidden.new_zeros((), dtype=torch.float32)
+    for i in range(0, len(h), chunk):
+        lp = F.log_softmax(model.lm_head(h[i:i + chunk]).float(), -1)
+        with torch.no_grad():
+            bp = F.log_softmax(base.lm_head(bh[i:i + chunk]).float(), -1)
+        total = total + (bp.exp() * (bp - lp)).sum()
+    return total, int(keep.sum())
 
 
 # ------------------------------------------------------------------ probes
@@ -260,6 +297,11 @@ def main() -> None:
     ap.add_argument("--step-tokens", type=int, default=65536, help="padded tokens per optimizer step")
     ap.add_argument("--max-len", type=int, default=8192, help="drop replay rows longer than this")
     ap.add_argument("--replay-frac", type=float, default=1.0, help="fraction of replay rows drawn (fresh) each epoch")
+    ap.add_argument("--anchor", default=None, help="general-text jsonl (field text), e.g. FineWeb")
+    ap.add_argument("--anchor-tokens", type=int, default=0, help="anchor tokens drawn (fresh) per epoch; 0 = no anchor")
+    ap.add_argument("--anchor-loss", choices=("kl", "ce"), default="kl")
+    ap.add_argument("--anchor-weight", type=float, default=1.0)
+    ap.add_argument("--anchor-val", type=int, default=64, help="anchor documents held out as a FineWeb NLL probe")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--max-steps", type=int, default=0, help="stop after this many steps (smoke test)")
     ap.add_argument("--probe-limit", type=int, default=0, help="items per probe set (0 = all)")
@@ -309,17 +351,47 @@ def main() -> None:
     replay_train, replay_val = load_replay(a.replay, a.max_len)
     replay_tokens = sum(len(it["ids"]) for it in replay_train)
     log(f"book tokens {doc_stats} | replay {len(replay_train)} train / {len(replay_val)} val rows, {replay_tokens} tokens")
+    anchor_train, anchor_val = load_anchor(a.anchor, tok, a.seq_len, bos, a.anchor_val)
+    use_anchor = bool(anchor_train) and a.anchor_tokens > 0
+    base = None
+    if use_anchor and a.anchor_loss == "kl":
+        if a.tiny:
+            import copy
+            base = copy.deepcopy(model)
+        else:
+            base = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(device)
+        base.eval()
+        for p in base.parameters():
+            p.requires_grad_(False)
+    log(f"anchor: {len(anchor_train)} train / {len(anchor_val)} val docs, {a.anchor_tokens if use_anchor else 0} tokens/epoch, "
+        f"loss {a.anchor_loss if use_anchor else '-'} x{a.anchor_weight}")
 
     accum = max(1, a.step_tokens // a.micro_tokens)
     rng = random.Random(a.seed)
     n_replay = round(a.replay_frac * len(replay_train))
 
-    def epoch_items(epoch: int) -> list[dict]:
+    def epoch_items(epoch: int) -> tuple[list[dict], list[dict]]:
         offset = epoch * (a.seq_len - 1) // a.epochs
         replay = random.Random(a.seed * 1000 + epoch).sample(replay_train, n_replay) if n_replay < len(replay_train) else replay_train
-        return book_items(docs, a.seq_len, offset, bos) + replay
+        anchors = []
+        if use_anchor:
+            pool = anchor_train[:]
+            random.Random(a.seed * 7919 + epoch).shuffle(pool)
+            budget = a.anchor_tokens
+            for it in pool:
+                if budget <= 0:
+                    break
+                anchors.append(it)
+                budget -= len(it["ids"])
+        return book_items(docs, a.seq_len, offset, bos) + replay, anchors
 
-    first = micro_batches(epoch_items(0), a.micro_tokens, random.Random(0))
+    def epoch_batches(epoch: int, r: random.Random) -> list[list[dict]]:
+        items, anchors = epoch_items(epoch)
+        batches = micro_batches(items, a.micro_tokens, r) + micro_batches(anchors, a.micro_tokens, r)
+        r.shuffle(batches)
+        return batches
+
+    first = epoch_batches(0, random.Random(0))
     steps_per_epoch = math.ceil(len(first) / accum)
     total_steps = steps_per_epoch * a.epochs
     if a.max_steps:
@@ -348,12 +420,17 @@ def main() -> None:
         if probes is None:
             return
         res = probes.run(model, tok, replay_val, pad, device, a, amp, eos)
+        if anchor_val:
+            res["nll_fineweb_val"] = nll(model, anchor_val, pad, device, a.micro_tokens, amp)
         history.append({"epoch": epoch, "step": step} | res)
         log(f"probe epoch {epoch}: " + json.dumps({k: v for k, v in res.items() if not k.endswith("example")}))
 
     report = {"base_model": a.model, "corpus": a.corpus, "splits": CORPORA[a.corpus], "book_tokens": doc_stats,
               "replay": {"path": a.replay, "train_rows": len(replay_train), "val_rows": len(replay_val),
                          "train_tokens": replay_tokens, "rows_per_epoch": n_replay},
+                "anchor": {"path": a.anchor, "train_docs": len(anchor_train), "val_docs": len(anchor_val),
+                         "tokens_per_epoch": a.anchor_tokens if use_anchor else 0, "loss": a.anchor_loss,
+                         "weight": a.anchor_weight},
               "config": config, "run_id": os.environ.get("RUN_ID"), "code_sha": os.environ.get("CODE_SHA"),
               "params": n_params, "device": torch.cuda.get_device_name(0) if device.type == "cuda" else "cpu"}
     try:
@@ -373,19 +450,27 @@ def main() -> None:
     step, seen_tokens, t_train = 0, 0, time.time()
     done = False
     for epoch in range(a.epochs):
-        batches = micro_batches(epoch_items(epoch), a.micro_tokens, rng)
+        batches = epoch_batches(epoch, rng)
         groups = [batches[i:i + accum] for i in range(0, len(batches), accum)]
-        run_loss, run_n = 0.0, 0
+        run_loss, run_n, run_kl, run_kn = 0.0, 0, 0.0, 0
         for group in groups:
             for g in opt.param_groups:
                 g["lr"] = lr_at(step)
             labels = sum(n_labels(it) for b in group for it in b)
             for b in group:
                 ids, att, lab = collate(b, pad, device)
+                anchor = b[0].get("kind") == "anchor"
                 with amp():
-                    loss, n = ce_sum(model, ids, att, lab)
-                (loss / labels).backward()
-                run_loss, run_n = run_loss + float(loss.detach()), run_n + n
+                    if anchor and base is not None:
+                        loss, n = kl_sum(model, base, ids, att)
+                    else:
+                        loss, n = ce_sum(model, ids, att, lab)
+                weight = a.anchor_weight if anchor else 1.0
+                (weight * loss / labels).backward()
+                if anchor:
+                    run_kl, run_kn = run_kl + float(loss.detach()), run_kn + n
+                else:
+                    run_loss, run_n = run_loss + float(loss.detach()), run_n + n
                 seen_tokens += ids.numel()
             gnorm = float(torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0))
             opt.step()
@@ -396,9 +481,11 @@ def main() -> None:
                 eta = (total_steps - step) * (time.time() - t_train) / step
                 entry = {"step": step, "epoch": epoch + 1, "loss": round(run_loss / max(run_n, 1), 4),
                          "lr": lr_at(step - 1), "grad_norm": round(gnorm, 3), "tok_per_s": round(rate)}
+                if run_kn:
+                    entry[f"anchor_{a.anchor_loss}"] = round(run_kl / run_kn, 4)
                 train_log.append(entry)
                 log(json.dumps(entry) + f" eta {eta / 60:.1f} min")
-                run_loss, run_n = 0.0, 0
+                run_loss, run_n, run_kl, run_kn = 0.0, 0, 0.0, 0
             if a.max_steps and step >= a.max_steps:
                 done = True
                 break

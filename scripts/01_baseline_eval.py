@@ -4,6 +4,10 @@ Tasks (--tasks, default all; outputs named in brackets)
   calc_direct, calc_think      [calculus_direct, calculus_think] sympy derivatives + integrals, levels 1-3, graded by lfm3u.grade
   knowmem_icl/chat/think       [knowmem_{forget,retain}_qa_<mode>] MUSE-Books QA, ROUGE-L recall + fact presence
   verbmem_raw, verbmem_chat    [verbmem_forget_<mode>] MUSE-Books verbatim continuation (128 tokens), ROUGE-L F1
+  mmlu                         [mmlu] fixed 1,000-question subset, 5-shot, letter argmax, accuracy (lfm3u.audit.utility)
+  ifeval_direct, ifeval_think  [ifeval_<mode>] IFEval prompt/instruction-level strict and loose accuracy
+  ppl_fineweb                  [ppl_fineweb] perplexity on 500 held-out FineWeb docs (first 1,024 tokens)
+  aliases: calculus, book, utility, all (default)
 
 Every item carries refused / abstained / gibberish / truncated flags (none counts as forgetting); thinking-mode
 knowmem also records fact_in_reasoning and hidden_fact (gold answer in the reasoning but not in the final answer).
@@ -27,6 +31,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from lfm3u import grade  # noqa: E402
 from lfm3u.audit import muse as book  # noqa: E402
+from lfm3u.audit import utility  # noqa: E402
 from lfm3u.audit.calc_probe import generate_calculus  # noqa: E402
 from lfm3u.infer import MODEL_ID, Generator, Sampling, general, math_thinking  # noqa: E402
 
@@ -35,9 +40,11 @@ FLAGS = ("refused", "abstained", "gibberish", "truncated")
 CALC_METRICS = ("correct", "parse_failed")
 KNOW_METRICS = ("rougeL_recall", "rougeL_f1", "fact", "fact_in_reasoning", "hidden_fact")
 VERB_METRICS = ("rougeL_f1", "rougeL_recall")
-TASKS = ("calc_direct", "knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "knowmem_think", "calc_think")
+TASKS = ("calc_direct", "knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "mmlu", "ppl_fineweb",
+         "ifeval_direct", "knowmem_think", "ifeval_think", "calc_think")
 ALIASES = {"all": TASKS, "calculus": ("calc_direct", "calc_think"),
-           "book": ("knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "knowmem_think")}
+           "book": ("knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "knowmem_think"),
+           "utility": ("mmlu", "ppl_fineweb", "ifeval_direct", "ifeval_think")}
 
 
 def mean(xs):
@@ -154,6 +161,55 @@ def run_verbmem(gen: Generator, mode: str, out: Path, limit: int):
     return name, summarize(rows, VERB_METRICS) | {"perf": perf, "sampling": s.as_dict()}
 
 
+# ------------------------------------------------------------------ utility
+
+def run_mmlu(gen: Generator, out: Path, limit: int):
+    items = _limit(utility.mmlu_subset(1000), limit)
+    shots = utility.mmlu_shots()
+    letters = utility.letter_tokens(gen.tok)
+    s = Sampling(1, allowed_token_ids=tuple(sorted(letters)))
+    outs, perf = gen.generate([gen.raw_ids(utility.mmlu_prompt(r, shots)) for r in items], s)
+    rows = []
+    for r, o in zip(items, outs):
+        pred = letters.get(o["token_ids"][0]) if o.get("token_ids") else None
+        rows.append({"idx": r["idx"], "subject": r["subject"], "gold": utility.LETTERS[r["answer"]], "pred": pred,
+                     "correct": pred == utility.LETTERS[r["answer"]], "n_tokens": 1})
+    write_jsonl(out / "generations" / "mmlu.jsonl", rows)
+    subjects = sorted({r["subject"] for r in rows})
+    pred_dist = {L: sum(r["pred"] == L for r in rows) for L in utility.LETTERS}
+    return "mmlu", {"n": len(rows), "acc": mean(r["correct"] for r in rows), "pred_distribution": pred_dist, "shots": 5,
+                    "by_subject": {sub: mean(r["correct"] for r in rows if r["subject"] == sub) for sub in subjects},
+                    "perf": perf, "sampling": s.as_dict()}
+
+
+def run_ifeval(gen: Generator, mode: str, out: Path, limit: int, max_tokens: int):
+    docs = _limit(utility.ifeval_items(), limit)
+    think = mode == "think"
+    s = general(max_tokens) if think else Sampling(max_tokens)
+    outs, perf = gen.generate([gen.chat_ids(d["prompt"], thinking=think) for d in docs], s)
+    rows = []
+    for d, o in zip(docs, outs):
+        _, final, closed = grade.split_thinking(o["text"])
+        if think and not closed:
+            final = ""
+        rows.append({"key": d["key"], "prompt": d["prompt"], "output": o["text"], "final": final, "n_tokens": o["n_tokens"],
+                     "truncated": o["finish_reason"] == "length"} | utility.grade_ifeval(d, final))
+    name = f"ifeval_{mode}"
+    write_jsonl(out / "generations" / f"{name}.jsonl", rows)
+    return name, utility.summarize_ifeval(rows) | {"truncated": mean(r["truncated"] for r in rows),
+                                                   "mean_tokens": mean(r["n_tokens"] for r in rows),
+                                                   "perf": perf, "sampling": s.as_dict()}
+
+
+def run_ppl(gen: Generator, out: Path, limit: int, max_len: int = 1024):
+    docs = _limit(utility.fineweb_docs(), limit)
+    prompts = [gen.raw_ids(d["text"])[:max_len] for d in docs]
+    lps = gen.prompt_logprobs(prompts)
+    write_jsonl(out / "generations" / "ppl_fineweb.jsonl",
+                [{"id": d["id"], "n_tokens": len(lp), "nll": round(-sum(lp) / max(len(lp), 1), 4)} for d, lp in zip(docs, lps)])
+    return "ppl_fineweb", utility.perplexity(lps) | {"max_len": max_len}
+
+
 def regrade(out: Path) -> dict:
     """Re-score <out>/generations/*.jsonl with the current graders and rewrite them and <out>/baseline.json."""
     bpath = out / "baseline.json"
@@ -244,6 +300,7 @@ def main():
     ap.add_argument("--think-max-tokens", type=int, default=16384, help="calculus with thinking")
     ap.add_argument("--chat-max-tokens", type=int, default=256, help="knowmem chat without thinking")
     ap.add_argument("--book-think-max-tokens", type=int, default=8192, help="knowmem chat with thinking")
+    ap.add_argument("--ifeval-max-tokens", type=int, default=8192, help="IFEval, both modes")
     ap.add_argument("--max-model-len", type=int, default=32768)
     ap.add_argument("--limit", type=int, default=0, help="cap items per task (smoke test)")
     ap.add_argument("--skip-think", action="store_true")
@@ -279,7 +336,7 @@ def main():
         report["go_no_go"] = go_no_go(report["results"])
         report["elapsed_seconds"] = round(time.time() - t0, 1)
         (out / "baseline.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-        brief = {k: v for k, v in (summ.get("overall", summ)).items() if k not in ("perf", "sampling")}
+        brief = {k: v for k, v in (summ.get("overall", summ)).items() if k not in ("perf", "sampling", "by_subject")}
         print(f"[done] {name}: {json.dumps(brief)}", flush=True)
 
     for task in (t for t in TASKS if t in tasks):  # cheap tasks first, long thinking runs last
@@ -291,8 +348,14 @@ def main():
             max_tokens = {"icl": 32, "chat": a.chat_max_tokens, "think": a.book_think_max_tokens}[mode]
             for split in ("forget_qa", "retain_qa"):
                 record(run_knowmem(gen, split, mode, out, a.limit, max_tokens))
-        else:
+        elif task.startswith("verbmem_"):
             record(run_verbmem(gen, task.split("_", 1)[1], out, a.limit))
+        elif task == "mmlu":
+            record(run_mmlu(gen, out, a.limit))
+        elif task.startswith("ifeval_"):
+            record(run_ifeval(gen, task.split("_", 1)[1], out, a.limit, a.ifeval_max_tokens))
+        elif task == "ppl_fineweb":
+            record(run_ppl(gen, out, a.limit))
 
     print(json.dumps(report["go_no_go"], indent=2), flush=True)
 

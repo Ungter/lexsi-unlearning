@@ -1,12 +1,16 @@
 """Run jobs on a Vast.ai GPU; artifacts go to Tigris (bucket lexsi-hackathon).
 
-  python scripts/vast/launch.py up [--job baseline|finetune] [--offer ID] [--max-dph 2.0] [--min-down 2000]
+  python scripts/vast/launch.py up [--job JOB[+JOB...]] [--offer ID] [--max-dph 2.0] [--min-down 2000]
                                    [--eval-args "--tasks calc_direct"] [--ft-args "--epochs 8"]
                                    [--model-uri s3://lexsi-hackathon/models/... --eval-name NAME]
+                                   [--models name=REF,name=REF] [--job-script PATH[,PATH]] [--script-args "..."]
                                    [--replay-uri s3://lexsi-hackathon/runs/RUN_ID/work/replay.jsonl] [--dry-run]
       baseline: scripts/01_baseline_eval.py on LFM3-1.7B (or on --model-uri) -> results/<name>/
+      eval:     scripts/01_baseline_eval.py on every --models entry (REF = s3:// checkpoint prefix or HF id)
       finetune: self-replay, fine-tune the MUSE target and retain-only models (scripts/02_replay.py, 03_finetune.py),
                 upload them to s3://lexsi-hackathon/models/RUN_ID/, then evaluate both -> results/{target,retain}/
+      script:   run --job-script (bash, from the repo; may source scripts/vast/common.sh) with --script-args
+    Jobs chain with "+", e.g. --job eval+script, and share one instance.
   python scripts/vast/launch.py status RUN_ID      instance state + remote STATUS + tail of run.log
   python scripts/vast/launch.py logs RUN_ID        vast container logs (early failures)
   python scripts/vast/launch.py fetch RUN_ID       download to results/runs/RUN_ID/ and merge into results/<name>/
@@ -14,6 +18,9 @@
 
 Offer choice: single GPU, >= min-down Mbps download, CUDA >= 13.0 (vLLM nightly cu130), verified, reliability > 0.97,
 <= max-dph $/h; take the fastest (dlperf) tier and the cheapest offer within 3% of it.
+up waits until the container is running; a host still 'loading' after --load-timeout min (stalled image pull) is
+destroyed and another machine is picked (--retries). Instances destroy themselves when the job ends (DONE or FAILED,
+after results and run.log are synced) unless --keep; down then just reports the instance is gone.
 Secrets are read from .env (HF_API, TIGRIS_ACCESS_ID, TIGRIS_SECRET, ENDPOINT) and never printed.
 """
 from __future__ import annotations
@@ -39,6 +46,7 @@ BUCKET = "lexsi-hackathon"
 IMAGE = "vllm/vllm-openai:nightly-cf5cea2da37d3dfed27d2e0aa3041c3e553c2d57"
 DISK_GB = 80
 STATE = ROOT / "results" / "vast"
+JOBS = ("baseline", "eval", "finetune", "script")
 
 
 def load_secrets() -> dict:
@@ -61,13 +69,22 @@ def vast(*args: str, raw: bool = True, confirm: bool = False):
                        input="y\n" if confirm else None)
     if p.returncode:
         sys.exit(f"vastai {' '.join(args[:2])} failed (rc={p.returncode}): {p.stderr.strip()[-400:]}")
-    return json.loads(p.stdout) if raw else p.stdout
+    if not raw:
+        return p.stdout
+    try:
+        out = json.loads(p.stdout)
+    except json.JSONDecodeError:
+        sys.exit(f"vastai {' '.join(args[:2])}: unexpected output: {(p.stdout or p.stderr).strip()[-400:]}")
+    if isinstance(out, dict) and out.get("error"):
+        sys.exit(f"vastai {' '.join(args[:2])}: {out.get('msg') or out}")
+    return out
 
 
-def pick_offer(max_dph: float, min_down: int) -> dict:
+def pick_offer(max_dph: float, min_down: int, exclude_machines=()) -> dict:
     q = (f"inet_down>={min_down} cuda_max_good>=13.0 num_gpus=1 reliability>0.97 disk_space>={DISK_GB} "
          f"rentable=true verified=true dph_total<={max_dph} gpu_ram>=24")
     offers = vast("search", "offers", q, "-o", "dlperf-")  # results are capped, so sort by speed server-side
+    offers = [o for o in offers if o.get("machine_id") not in set(exclude_machines)]
     if not offers:
         sys.exit("no offers match")
     best = max(o.get("dlperf") or 0 for o in offers)
@@ -116,7 +133,18 @@ def code_sha() -> str:
 
 def cmd_up(a) -> None:
     sec = load_secrets()
-    run_id = time.strftime(f"{'base' if a.job == 'baseline' else 'ft'}-%Y%m%d-%H%M%S")
+    jobs = a.job.split("+")
+    if not all(j in JOBS for j in jobs):
+        sys.exit(f"--job must be {'|'.join(JOBS)} or several joined with +")
+    if "eval" in jobs and not a.models:
+        sys.exit("--job eval needs --models")
+    if "script" in jobs and not a.job_script:
+        sys.exit("--job script needs --job-script")
+    for s in (a.job_script or "").split(","):
+        if s and not (ROOT / s).is_file():
+            sys.exit(f"job script not found: {s}")
+    prefix_name = {"baseline": "base", "finetune": "ft"}.get(jobs[0], jobs[0])
+    run_id = time.strftime(f"{prefix_name}-%Y%m%d-%H%M%S")
     prefix = f"s3://{BUCKET}/runs/{run_id}"
     if a.offer:  # the CLI warns about ask_contract_id but the API filters on it ("id=" matches nothing)
         offer = next((o for o in vast("search", "offers", f"ask_contract_id={a.offer}") if o["id"] == a.offer), None)
@@ -124,37 +152,73 @@ def cmd_up(a) -> None:
         offer = pick_offer(a.max_dph, a.min_down)
     if offer is None:
         sys.exit(f"offer {a.offer} not available")
-    brief = offer_brief(offer)
-    print(json.dumps({"run_id": run_id, "image": IMAGE, **brief}, indent=2))
+    print(json.dumps({"run_id": run_id, "image": IMAGE, **offer_brief(offer)}, indent=2))
     if a.dry_run:
         return
     storage.put_bytes(code_tarball(), f"{prefix}/code.tgz")
     url = storage.presign(f"{prefix}/code.tgz", expires=12 * 3600)
     env = {"HF_TOKEN": sec["HF_API"], "AWS_ACCESS_KEY_ID": sec["TIGRIS_ACCESS_ID"], "AWS_SECRET_ACCESS_KEY": sec["TIGRIS_SECRET"],
-           "AWS_ENDPOINT_URL_S3": sec["ENDPOINT"], "RUN_ID": run_id, "S3_PREFIX": prefix, "CODE_SHA": code_sha(), "JOB": a.job}
+           "AWS_ENDPOINT_URL_S3": sec["ENDPOINT"], "RUN_ID": run_id, "S3_PREFIX": prefix, "CODE_SHA": code_sha(), "JOB": a.job,
+           "AUTO_DESTROY": "0" if a.keep else "1"}
     if a.model_uri:
         env |= {"MODEL_URI": a.model_uri, "EVAL_NAME": a.eval_name}
     if a.replay_uri:
         env["REPLAY_URI"] = a.replay_uri
-    if any(c in s for s in (a.eval_args, a.ft_args) for c in "'\"\\$`") or \
-            not all(re.fullmatch(r"[\w./:=-]*", s) for s in (a.model_uri or "", a.eval_name, a.replay_uri or "")):
-        sys.exit("--eval-args/--ft-args must not contain quotes, backslashes, $ or backticks; "
-                 "--model-uri/--eval-name must be plain paths")
+    if a.models:
+        env["EVAL_MODELS"] = a.models
+    if a.job_script:
+        env["JOB_SCRIPT"] = a.job_script
+    if any(c in s for s in (a.eval_args, a.ft_args, a.script_args) for c in "'\"\\$`") or not all(
+            re.fullmatch(r"[\w./:=,+-]*", s) for s in (a.model_uri or "", a.eval_name, a.replay_uri or "",
+                                                       a.models or "", a.job_script or "")):
+        sys.exit("--eval-args/--ft-args/--script-args must not contain quotes, backslashes, $ or backticks; "
+                 "--model-uri/--eval-name/--models/--job-script must be plain paths")
     onstart = (f"mkdir -p /root/lexsi && cd /root/lexsi && curl -fsSL '{url}' -o code.tgz && tar xzf code.tgz && "
-               f"(EVAL_ARGS='{a.eval_args}' FT_ARGS='{a.ft_args}' nohup bash scripts/vast/remote_run.sh "
-               "> /root/lexsi/run.log 2>&1 &)")
-    res = vast("create", "instance", str(offer["id"]), "--image", IMAGE, "--disk", str(DISK_GB),
-               "--env", " ".join(f"-e {k}={v}" for k, v in env.items()), "--onstart-cmd", onstart,
-               "--ssh", "--direct", "--label", f"lexsi-{run_id}", "--cancel-unavail")
-    if not res.get("success"):
-        sys.exit("create failed")
+               f"(EVAL_ARGS='{a.eval_args}' FT_ARGS='{a.ft_args}' SCRIPT_ARGS='{a.script_args}' "
+               "nohup bash scripts/vast/remote_run.sh > /root/lexsi/run.log 2>&1 &)")
     STATE.mkdir(parents=True, exist_ok=True)
-    st = {"run_id": run_id, "job": a.job, "instance_id": res["new_contract"], "image": IMAGE, "s3_prefix": prefix,
-          "code_sha": env["CODE_SHA"], "eval_args": a.eval_args, "ft_args": a.ft_args, "model_uri": a.model_uri,
-          "replay_uri": a.replay_uri,
-          "created_unix": int(time.time()), **brief}
-    state_path(run_id).write_text(json.dumps(st, indent=2))
-    print(f"instance {res['new_contract']} created; state in {state_path(run_id).relative_to(ROOT)}")
+    stalled: list[int] = []
+    for attempt in range(a.retries + 1):
+        if attempt:  # the previous host stalled: re-pick automatically, skipping the machines that stalled
+            offer = pick_offer(a.max_dph, a.min_down, exclude_machines=stalled)
+            print(json.dumps({"retry": attempt, **offer_brief(offer)}, indent=2))
+        res = vast("create", "instance", str(offer["id"]), "--image", IMAGE, "--disk", str(DISK_GB),
+                   "--env", " ".join(f"-e {k}={v}" for k, v in env.items()), "--onstart-cmd", onstart,
+                   "--ssh", "--direct", "--label", f"lexsi-{run_id}", "--cancel-unavail")
+        if not res.get("success"):
+            sys.exit("create failed")
+        iid = res["new_contract"]
+        st = {"run_id": run_id, "job": a.job, "instance_id": iid, "machine_id": offer.get("machine_id"), "image": IMAGE,
+              "s3_prefix": prefix, "code_sha": env["CODE_SHA"], "eval_args": a.eval_args, "ft_args": a.ft_args,
+              "model_uri": a.model_uri, "replay_uri": a.replay_uri, "models": a.models, "job_script": a.job_script,
+              "script_args": a.script_args, "auto_destroy": not a.keep, "stalled_machines": stalled,
+              "created_unix": int(time.time()), **offer_brief(offer)}
+        state_path(run_id).write_text(json.dumps(st, indent=2))
+        print(f"instance {iid} created; state in {state_path(run_id).relative_to(ROOT)}", flush=True)
+        if not a.load_timeout or wait_running(iid, a.load_timeout * 60):
+            return
+        print(f"instance {iid} still loading after {a.load_timeout} min; destroying it and re-picking", flush=True)
+        vast("destroy", "instance", str(iid), raw=False, confirm=True)
+        stalled.append(offer.get("machine_id"))
+    sys.exit(f"gave up after {a.retries + 1} hosts stalled while loading")
+
+
+def wait_running(instance_id: int, timeout_s: float) -> bool:
+    """Poll until the container is running (True) or timeout_s passes (False). Healthy hosts take 1-6 min;
+    stalled image pulls sit in 'loading' indefinitely and are billed."""
+    t0 = time.time()
+    while time.time() - t0 < timeout_s:
+        try:
+            inst = vast("show", "instance", str(instance_id))
+        except SystemExit:
+            inst = {}
+        if inst.get("actual_status") == "running":
+            print(f"instance {instance_id} running after {(time.time() - t0) / 60:.1f} min", flush=True)
+            return True
+        if inst.get("actual_status") in ("exited", "offline"):
+            return False
+        time.sleep(20)
+    return False
 
 
 def cmd_status(a) -> None:
@@ -223,7 +287,11 @@ def cmd_fetch(a) -> None:
 
 def cmd_down(a) -> None:
     st = load_state(a.run_id)
-    print(vast("destroy", "instance", str(st["instance_id"]), raw=False, confirm=True).strip())
+    try:
+        out = vast("destroy", "instance", str(st["instance_id"]), raw=False, confirm=True).strip()
+    except SystemExit as e:
+        out = f"instance {st['instance_id']} already gone (auto-destroyed?): {e}"
+    print(out or f"instance {st['instance_id']} already gone (auto-destroyed?)")
 
 
 def main() -> None:
@@ -233,12 +301,19 @@ def main() -> None:
     up.add_argument("--offer", type=int)
     up.add_argument("--max-dph", type=float, default=2.0)
     up.add_argument("--min-down", type=int, default=2000)
-    up.add_argument("--job", choices=("baseline", "finetune"), default="baseline")
+    up.add_argument("--job", default="baseline", help=f"{'|'.join(JOBS)}, or several joined with +")
+    up.add_argument("--models", default=None, help="eval job: name=REF,name=REF (REF = s3:// prefix or HF id)")
+    up.add_argument("--job-script", default=None, help="script job: bash script(s) in the repo, comma-separated")
+    up.add_argument("--script-args", default="", help="script job: arguments for the script(s)")
     up.add_argument("--eval-args", default="", help="extra args for scripts/01_baseline_eval.py")
     up.add_argument("--ft-args", default="", help="extra args for scripts/03_finetune.py")
     up.add_argument("--model-uri", default=None, help="baseline job: evaluate this checkpoint prefix instead of LFM3-1.7B")
     up.add_argument("--eval-name", default="eval", help="baseline job with --model-uri: results/<name>/")
     up.add_argument("--replay-uri", default=None, help="finetune job: reuse this self-replay jsonl (s3://...)")
+    up.add_argument("--keep", action="store_true", help="do not let the instance destroy itself when the job ends")
+    up.add_argument("--load-timeout", type=float, default=10.0,
+                    help="minutes to wait for the container to start before destroying the host and re-picking (0 = don't wait)")
+    up.add_argument("--retries", type=int, default=2, help="re-picks after stalled hosts")
     up.add_argument("--dry-run", action="store_true")
     for name in ("status", "logs", "fetch", "down"):
         p = sub.add_parser(name)
