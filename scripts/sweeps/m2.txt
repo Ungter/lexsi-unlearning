@@ -1,0 +1,5 @@
+# Phase 5 box 2: calculus controls: zero-ablation of the localized units, and the same-size random masks.
+abl_calc --target calculus --method ablate --mask work/localize/calculus/scores.pt
+mnpo_calc_rand_lr1e-4 --target calculus --method npo_full --lr 1e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt --mask-random
+mnpo_calc_rand_lr3e-4 --target calculus --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt --mask-random
+mnpo_calc_rand_lr1e-3 --target calculus --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt --mask-random

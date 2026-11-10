@@ -15,6 +15,7 @@
   python scripts/vast/launch.py logs RUN_ID        vast container logs (early failures)
   python scripts/vast/launch.py fetch RUN_ID       download to results/runs/RUN_ID/ and merge into results/<name>/
   python scripts/vast/launch.py down RUN_ID        destroy the instance
+  python scripts/vast/launch.py reap               destroy instances whose job finished but that are still billing
 
 Offer choice: single GPU, >= min-down Mbps download, CUDA >= 13.0 (vLLM nightly cu130), verified, reliability > 0.97,
 <= max-dph $/h; take the fastest (dlperf) tier and the cheapest offer within 3% of it.
@@ -30,6 +31,7 @@ import io
 import json
 import os
 import re
+import secrets
 import subprocess
 import sys
 import tarfile
@@ -144,7 +146,10 @@ def cmd_up(a) -> None:
         if s and not (ROOT / s).is_file():
             sys.exit(f"job script not found: {s}")
     prefix_name = {"baseline": "base", "finetune": "ft"}.get(jobs[0], jobs[0])
-    run_id = time.strftime(f"{prefix_name}-%Y%m%d-%H%M%S")
+    if a.tag and not re.fullmatch(r"[\w.-]+", a.tag):
+        sys.exit("--tag must be letters, digits, _ . -")
+    # random suffix: launches started in the same second must not share a run id (state file, S3 prefix, logs)
+    run_id = time.strftime(f"{prefix_name}-%Y%m%d-%H%M%S") + (f"-{a.tag}" if a.tag else "") + f"-{secrets.token_hex(2)}"
     prefix = f"s3://{BUCKET}/runs/{run_id}"
     if a.offer:  # the CLI warns about ask_contract_id but the API filters on it ("id=" matches nothing)
         offer = next((o for o in vast("search", "offers", f"ask_contract_id={a.offer}") if o["id"] == a.offer), None)
@@ -285,6 +290,23 @@ def cmd_fetch(a) -> None:
         print(f"copied fine-tune logs to results/finetune/{a.run_id}")
 
 
+def cmd_reap(a) -> None:
+    """Destroy every instance of ours whose job has finished (STATUS DONE/FAILED) but that is still billing."""
+    load_secrets()
+    n = 0
+    for inst in vast("show", "instances"):
+        label = inst.get("label") or ""
+        if not label.startswith("lexsi-"):
+            continue
+        run_id = label[len("lexsi-"):]
+        status = (storage.get_text(f"s3://{BUCKET}/runs/{run_id}/STATUS") or "").strip()
+        if status.startswith(("DONE", "FAILED")):
+            print(f"reaping {inst['id']} ({run_id}: {status})")
+            vast("destroy", "instance", str(inst["id"]), raw=False, confirm=True)
+            n += 1
+    print(f"reaped {n} instance(s)")
+
+
 def cmd_down(a) -> None:
     st = load_state(a.run_id)
     try:
@@ -310,17 +332,19 @@ def main() -> None:
     up.add_argument("--model-uri", default=None, help="baseline job: evaluate this checkpoint prefix instead of LFM3-1.7B")
     up.add_argument("--eval-name", default="eval", help="baseline job with --model-uri: results/<name>/")
     up.add_argument("--replay-uri", default=None, help="finetune job: reuse this self-replay jsonl (s3://...)")
+    up.add_argument("--tag", default="", help="label added to the run id (e.g. book_grad)")
     up.add_argument("--keep", action="store_true", help="do not let the instance destroy itself when the job ends")
     up.add_argument("--load-timeout", type=float, default=10.0,
                     help="minutes to wait for the container to start before destroying the host and re-picking (0 = don't wait)")
     up.add_argument("--retries", type=int, default=2, help="re-picks after stalled hosts")
     up.add_argument("--dry-run", action="store_true")
+    sub.add_parser("reap")
     for name in ("status", "logs", "fetch", "down"):
         p = sub.add_parser(name)
         p.add_argument("run_id")
         p.add_argument("--lines", type=int, default=40)
     a = ap.parse_args()
-    {"up": cmd_up, "status": cmd_status, "logs": cmd_logs, "fetch": cmd_fetch, "down": cmd_down}[a.cmd](a)
+    {"up": cmd_up, "status": cmd_status, "logs": cmd_logs, "fetch": cmd_fetch, "down": cmd_down, "reap": cmd_reap}[a.cmd](a)
 
 
 if __name__ == "__main__":

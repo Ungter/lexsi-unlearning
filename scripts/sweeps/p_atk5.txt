@@ -1,0 +1,2 @@
+# Phase-5 audit: relearning on the random-mask calculus RMU (split off p_atk1 to run in parallel).
+12_relearn.py mrmu_calc_l4_rand s3://lexsi-hackathon/models/script-20261109-180410-m3-ae41/mrmu_calc_l4_c20_rand --domain calc

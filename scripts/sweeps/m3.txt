@@ -1,0 +1,5 @@
+# Phase 5 box 3: masked RMU on calculus (units in layers <= L only, 0.5% of params) and the random control.
+mrmu_calc_l4_c20 --target calculus --method rmu --layer 4 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/calculus/scores.pt
+mrmu_calc_l4_c20_rand --target calculus --method rmu --layer 4 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/calculus/scores.pt --mask-random
+mrmu_calc_l8_c20 --target calculus --method rmu --layer 8 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/calculus/scores.pt
+mrmu_calc_l8_c20_rand --target calculus --method rmu --layer 8 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/calculus/scores.pt --mask-random

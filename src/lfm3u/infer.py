@@ -20,7 +20,7 @@ class Sampling:
     top_k: int = 0
     repetition_penalty: float = 1.0
     stop: tuple[str, ...] = field(default_factory=tuple)
-    seed: int = 0
+    seed: int | None = 0  # None = unseeded (vLLM draws per-request randomness; needed for best-of-N)
     allowed_token_ids: tuple[int, ...] = field(default_factory=tuple)  # restrict sampling (e.g. MMLU letters)
 
     def as_dict(self) -> dict:
@@ -161,7 +161,7 @@ class Generator:
                 gk.update(temperature=None, top_p=None, top_k=None)
             if s.stop:
                 gk.update(stop_strings=list(s.stop), tokenizer=self.tok)
-            torch.manual_seed(s.seed)
+            torch.manual_seed(s.seed or 0)
             with torch.no_grad():
                 g = self.hf.generate(input_ids=inp.cuda(), attention_mask=att.cuda(), **gk)
             for j, i in enumerate(idx):

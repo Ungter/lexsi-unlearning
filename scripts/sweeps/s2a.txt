@@ -1,0 +1,4 @@
+# SAM-NPO vs plain NPO-KL on all weights, book (MUSE setting in the paper: NPO lr 1e-5, rho grid 1e-3..1e-1). Box 1.
+book_npofull_plain_lr1e-5 --target book --method npo_full --lr 1e-5 --epochs 5 --steps 0 --n-forget 400
+book_npo_sam_r0.01_lr1e-5 --target book --method npo_sam --rho 0.01 --lr 1e-5 --epochs 5 --steps 0 --n-forget 400
+book_npo_sam_r0.1_lr1e-5 --target book --method npo_sam --rho 0.1 --lr 1e-5 --epochs 5 --steps 0 --n-forget 400

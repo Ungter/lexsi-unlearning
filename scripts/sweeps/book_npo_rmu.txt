@@ -1,0 +1,9 @@
+# Book target: NPO (npo_KL, LoRA) and RMU. NPO epochs run over --n-forget chunks (~50 batches for 400).
+book_npo_lr5e-5_e3 --target book --method npo --lr 5e-5 --epochs 3 --n-forget 400
+book_npo_lr2e-4_e3 --target book --method npo --lr 2e-4 --epochs 3 --n-forget 400
+book_npo_lr2e-4_e5 --target book --method npo --lr 2e-4 --epochs 5 --n-forget 400
+book_rmu_l7_c20_a100 --target book --method rmu --layer 7 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l4_c20_a100 --target book --method rmu --layer 4 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l12_c20_a100 --target book --method rmu --layer 12 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l7_c6.5_a100 --target book --method rmu --layer 7 --coeff 6.5 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l7_c20_a1200 --target book --method rmu --layer 7 --coeff 20 --alpha 1200 --lr 5e-5 --steps 80

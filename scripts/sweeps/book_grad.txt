@@ -1,0 +1,8 @@
+# Book target: gradient-ascent family (full weights). Steps are optimizer steps of ~4k tokens (8 chunks).
+book_ga_lr1e-6_s100 --target book --method ga --lr 1e-6 --steps 100
+book_ga_lr3e-6_s100 --target book --method ga --lr 3e-6 --steps 100
+book_ga_lr3e-6_s250 --target book --method ga --lr 3e-6 --steps 250
+book_graddiff_lr3e-6_s150 --target book --method graddiff --lr 3e-6 --steps 150
+book_graddiff_lr1e-5_s150 --target book --method graddiff --lr 1e-5 --steps 150
+book_gakl_lr3e-6_s150 --target book --method gakl --lr 3e-6 --steps 150 --batch-tokens 3072
+book_gakl_lr1e-5_s150 --target book --method gakl --lr 1e-5 --steps 150 --batch-tokens 3072

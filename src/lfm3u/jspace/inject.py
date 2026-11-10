@@ -186,3 +186,47 @@ def capital_swap(jm, lens, tokenizer, pairs: Sequence[dict], *, template: str = 
                         "summary": summary, "best_add_last_continuation": cont, "runs": runs})
     agg = {m: sum(r["summary"][m]["success"] for r in results) for m in ("add_last", "add_all", "swap_band")}
     return {"template": template, "n_pairs": len(results), "pairs_with_success": agg, "pairs": results}
+
+
+# ---------------------------------------------------------------- batched per-row injection (attack 14)
+
+def random_direction(d_model: int, seed: int = 0) -> torch.Tensor:
+    """Unit Gaussian direction (fp32, CPU), reproducible from ``seed``; same norm as the unit concept directions."""
+    g = torch.Generator().manual_seed(int(seed))
+    v = torch.randn(d_model, generator=g)
+    return v / v.norm()
+
+
+@contextlib.contextmanager
+def inject_rows(layers, dirs: dict[int, torch.Tensor], alphas: torch.Tensor, mask: torch.Tensor):
+    """Per-row additive injection for batched (left-padded) generation with a KV cache.
+
+    ``h[b, p] += alphas[b] * ||h[b, p]|| * dirs[l][b]`` at the output of block ``l`` wherever ``mask[b, p]``.
+    ``dirs[l]`` is ``[B, d]`` (zero rows = no edit at that layer), ``alphas`` ``[B]``, ``mask`` ``[B, T_prompt]`` bool.
+    Only the prompt (prefill) forward pass is edited: the hooks skip any call whose sequence length differs from
+    ``T_prompt`` (decode steps see one token), so generated tokens are never injected.
+    ``layers`` is the block list (``hf.model.layers`` or ``jm.layers``)."""
+    T0 = mask.shape[1]
+    handles = []
+
+    def make_hook(V: torch.Tensor):
+        def hook(module, inputs, output):
+            hidden = output if torch.is_tensor(output) else output[0]
+            if hidden.dim() != 3 or hidden.shape[1] != T0 or hidden.shape[0] != V.shape[0]:
+                return output
+            h = hidden.float()
+            m = mask.to(h.device, torch.float32)[..., None]
+            a = alphas.to(h.device, torch.float32)[:, None, None]
+            v = V.to(h.device, torch.float32)[:, None, :]
+            new = (h + a * m * h.norm(dim=-1, keepdim=True) * v).to(hidden.dtype)
+            return new if torch.is_tensor(output) else (new, *output[1:])
+
+        return hook
+
+    try:
+        for layer, V in dirs.items():
+            handles.append(layers[layer].register_forward_hook(make_hook(V)))
+        yield
+    finally:
+        for h in handles:
+            h.remove()

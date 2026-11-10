@@ -1,0 +1,2 @@
+# SAM-NPO, calculus, box 2.
+calc_npo_sam_r0.1 --target calculus --method npo_sam --rho 0.1 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400

@@ -1,0 +1,5 @@
+# Phase 5 box 5: book controls and masked RMU.
+mnpo_book_rand_lr3e-4 --target book --method npo_full --lr 3e-4 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt --mask-random
+mrmu_book_l4_c20 --target book --method rmu --layer 4 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/book/scores.pt
+mrmu_book_l4_c20_rand --target book --method rmu --layer 4 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/book/scores.pt --mask-random
+mnpo_book_rand_lr1e-3 --target book --method npo_full --lr 1e-3 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt --mask-random

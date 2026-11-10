@@ -1,0 +1,2 @@
+# UNDO, teacher = book RMU-l4 (verbatim at the floor, relearns to 0.39 in 25 steps).
+undo undo_book_rmu s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --target book --max-minutes 300

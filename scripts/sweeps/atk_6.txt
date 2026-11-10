@@ -1,0 +1,3 @@
+# Attacks 8+10, box 6: calculus reference (target).
+12_relearn.py target_calc s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain calc
+11_abliterate.py target_calc s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain calc

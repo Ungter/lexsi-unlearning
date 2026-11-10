@@ -1,0 +1,5 @@
+# Attacks 8+10, box 2: book references (target, retain-only).
+12_relearn.py target_book s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain book
+11_abliterate.py target_book s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain book
+12_relearn.py retain_book s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book
+11_abliterate.py retain_book s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book

@@ -1,0 +1,8 @@
+# Round 2: weak calculus RMU (looking for a non-degenerate point), one GA-KL point, book RMU layer robustness.
+calc_rmu_l4_c3_s40 --target calculus --method rmu --layer 4 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
+calc_rmu_l4_c5_s20 --target calculus --method rmu --layer 4 --coeff 5 --alpha 100 --lr 5e-5 --steps 20
+calc_rmu_l7_c3_s40 --target calculus --method rmu --layer 7 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
+calc_rmu_l7_c2_s40 --target calculus --method rmu --layer 7 --coeff 2 --alpha 100 --lr 5e-5 --steps 40
+calc_gakl_lr3e-5_s150 --target calculus --method gakl --lr 3e-5 --steps 150 --batch-tokens 3072
+book_rmu_l3_c20_a100 --target book --method rmu --layer 3 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l5_c20_a100 --target book --method rmu --layer 5 --coeff 20 --alpha 100 --lr 5e-5 --steps 80

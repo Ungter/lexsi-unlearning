@@ -1,0 +1,5 @@
+# Seeds for the book localized-NPO relearning result (seed 0 = mnpo_book_lr1e-3 / mnpo_book_rand_lr1e-3), box 1.
+mnpo_book_s1 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --seed 1
+mnpo_book_rand_s1 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --mask-random --seed 1
+# matched start: a random mask trained harder, aiming at the localized model's verbatim score (~0.22 dev)
+mnpo_book_rand_lr2e-3 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 2e-3 --mask work/localize/book/scores.pt --mask-random

@@ -1,0 +1,4 @@
+# Phase-5 audit: test-split direct + prompt attacks on the masked RMU checkpoints.
+mrmu_book_l4 s3://lexsi-hackathon/models/script-20261109-180411-m5-50fd/mrmu_book_l4_c20 --domains book
+mrmu_book_l4_rand s3://lexsi-hackathon/models/script-20261109-180411-m5-50fd/mrmu_book_l4_c20_rand --domains book
+mrmu_calc_l4 s3://lexsi-hackathon/models/script-20261109-180410-m3-ae41/mrmu_calc_l4_c20 --domains calc

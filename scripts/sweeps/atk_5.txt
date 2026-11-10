@@ -1,0 +1,3 @@
+# Attacks 8+10, box 5: non-degenerate calculus RMU.
+12_relearn.py calc_rmu_l4_c5 s3://lexsi-hackathon/models/script-20261109-112451-r2_rmu_misc-0e9a/calc_rmu_l4_c5_s20 --domain calc
+11_abliterate.py calc_rmu_l4_c5 s3://lexsi-hackathon/models/script-20261109-112451-r2_rmu_misc-0e9a/calc_rmu_l4_c5_s20 --domain calc

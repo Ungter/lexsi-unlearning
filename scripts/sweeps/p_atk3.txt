@@ -1,0 +1,3 @@
+# Phase-5 audit: relearning on masked NPO-KL (lr 1e-3), localized vs random mask, calculus.
+12_relearn.py mnpo_calc s3://lexsi-hackathon/models/script-20261109-180409-m1-1530/mnpo_calc_lr1e-3 --domain calc
+12_relearn.py mnpo_calc_rand s3://lexsi-hackathon/models/script-20261109-180410-m2-54c8/mnpo_calc_rand_lr1e-3 --domain calc

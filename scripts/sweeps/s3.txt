@@ -1,0 +1,5 @@
+# SAM-NPO follow-up: rho 0.1 saturated the adversarial forget loss (no unlearning at lr 1e-5, collapse at 3e-5); smaller radii
+# from the low end of the paper's grid (1e-3..1e-1), next to the plain runs that worked (book lr 3e-5, calculus lr 1e-5).
+book_npo_sam_r0.003_lr3e-5 --target book --method npo_sam --rho 0.003 --lr 3e-5 --epochs 5 --steps 0 --n-forget 400
+book_npo_sam_r0.01_lr3e-5 --target book --method npo_sam --rho 0.01 --lr 3e-5 --epochs 5 --steps 0 --n-forget 400
+calc_npo_sam_r0.003 --target calculus --method npo_sam --rho 0.003 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400

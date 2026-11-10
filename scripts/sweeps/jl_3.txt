@@ -1,0 +1,2 @@
+# J-lens attack box 3: calculus NPO.
+calc_npo s3://lexsi-hackathon/models/script-20261109-112451-r2_npo-4501/calc_npo_lr5e-4_e3

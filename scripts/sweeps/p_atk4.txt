@@ -1,0 +1,3 @@
+# Phase-5 audit: relearning on masked NPO-KL (lr 1e-3), localized vs random mask, book.
+12_relearn.py mnpo_book s3://lexsi-hackathon/models/script-20261109-180411-m4-0b87/mnpo_book_lr1e-3 --domain book
+12_relearn.py mnpo_book_rand s3://lexsi-hackathon/models/script-20261109-180411-m5-50fd/mnpo_book_rand_lr1e-3 --domain book

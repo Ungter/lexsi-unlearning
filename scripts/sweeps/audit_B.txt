@@ -1,0 +1,3 @@
+# Audit box B: retain-only floor and the base model.
+retain s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A
+base LiquidAI/LFM3-1.7B

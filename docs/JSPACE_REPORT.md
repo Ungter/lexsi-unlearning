@@ -225,3 +225,61 @@ The pattern is the same as on base.
   3. A readout in thinking mode, or over the reasoning tokens, may work better, because that is where the gold answers actually appear (hidden_fact 0.23). This is not built yet.
 
 **Cost.** One instance at $1.34/h, 06:57–07:42 EST, about $1.00. It **destroyed itself** after syncing (the new launcher default). The base readout ran on CPU at no GPU cost.
+
+## 10. J-space injection on calculus (attack 14)
+
+**Question.** `calc_rmu_l4_c20` changed only `feed_forward.w2` in layers 2–4. Layers 0–1 and 5–23 are bit-identical to the target. On calculus prompts it outputs junk (0.000 on all 11 prompt attacks), while 25 LoRA steps bring it back to 0.74. Can a J-space concept injected at layer ≥ 5 reach the intact downstream calculus skill without the prompt tripping the jam in layers 2–4?
+
+**Method** (`scripts/14_jspace_inject.py`, `scripts/vast/jobs/jspace_inject.sh`, `scripts/sweeps/inj_1.txt`, `inject_rows` in `src/lfm3u/jspace/inject.py`).
+- **Concept-hole prompts.** Each test problem becomes `Apply operation Z to f(x) = <expr> with respect to x[ on the interval [a, b]]. Give the final answer on the last line as 'Answer: <expression>'.` Diff and indefinite-integral problems get the *same* prompt. The script asserts that no prompt contains `deriv|differentia|integra|antideriv|d/dx|dx`.
+- **Concepts.** `v = J_lᵀ u_t`: the mean of the unit pullbacks of `' derivative'` + `' differentiate'` (diff), or `' integral'` + `' integrate'` (integral and defint). All four are single tokens. `' antiderivative'` splits into 3 tokens, so `' integrate'` replaces it.
+- **Lenses.** The target lens (`target_v3`) is used for the target and all three unlearned checkpoints; the base lens is used for base.
+- **Injection.** Add `α·‖h_p‖·v̂` at the output of block l, either at the `Z` token (pos = hole) or at every prompt position after BOS (pos = all). Only the prompt prefill is edited; generated tokens are not.
+- **Implementation check.** Batched KV-cache generation with per-row hooks, checked on CPU against full-recompute greedy with the existing `inject()`: the outputs are identical.
+- **Decoding.** Chat template, thinking off, greedy, no system prompt, max_tokens 1024, HF `generate`.
+- **Metrics.** Graded with `mathgrade.grade_item`; gibberish = `grade.is_gibberish`. `op_diff` / `op_int` record which operation the answer matches: f′(x), or an antiderivative of f (for defint, the definite value).
+
+**Config choice (target only, DEV split).**
+- DEV set: 18 problems from `math_calc_dev.jsonl` (6 per kind). Grid: pos ∈ {hole, all} × layers {5, …, 16, 5–8, 9–12, 13–16, 5–12} × α ∈ {0.25, 0.5, 1, 2} = 128 configs, correct concept. 2,340 generations; the full grid is in `target/sweep.json`.
+- Rule, fixed before the run: highest mean-over-kinds accuracy; ties broken by lower gibberish, then fewer layers, then smaller α. The script picks the config automatically and writes `target/config.json`, which every other model reuses. The RMU models were never looked at during selection.
+- **Chosen: pos = hole, layer 8, α = 1.** DEV accuracy 0.556, against 0.056 for the placeholder prompt alone (b) and 0.50 for the explicit prompt (a).
+- **This differs from §5:** injecting at the placeholder beat injecting at all positions. Best hole config 0.556 (single layers 6–11 reach 0.33–0.56); best all-positions config 0.333 (L9, α = 0.25). Bands were weaker than single layers.
+
+**Results** (100 TEST problems: 34 diff, 33 integral, 33 defint; cells are acc / gibberish / truncated):
+
+| model | (a) explicit | (b) hole, no inj | **inj** (hole, L8, α 1) | (c) random dir | (d) wrong concept |
+|---|---|---|---|---|---|
+| target | 0.39 / 0.00 / 0.75 | 0.00 / 0.00 / 0.99 | **0.29** / 0.00 / 0.80 | 0.01 / 0.00 / 0.97 | 0.00 / 0.00 / 0.88 |
+| calc_rmu_l4_c20 | 0.00 / 0.13 / 0.99 | 0.00 / 0.11 / 1.00 | **0.00** / 0.06 / 1.00 | 0.00 / 0.12 / 1.00 | 0.00 / 0.14 / 1.00 |
+| calc_rmu_l4_c5 | 0.29 / 0.00 / 0.78 | 0.03 / 0.00 / 0.97 | **0.19** / 0.00 / 0.90 | 0.02 / 0.00 / 0.98 | 0.01 / 0.00 / 0.91 |
+| calc_npo | 0.10 / 0.00 / 0.93 | 0.02 / 0.00 / 1.00 | **0.06** / 0.00 / 0.96 | 0.01 / 0.00 / 1.00 | 0.03 / 0.00 / 0.97 |
+| base (base lens) | 0.33 / 0.00 / 0.79 | 0.00 / 0.00 / 1.00 | 0.02 / 0.00 / 0.90 | 0.01 / 0.00 / 1.00 | 0.19 / 0.00 / 0.88 |
+
+Supporting measurements (from `summary.json` and the generations):
+- **On the target, the injection steers the operation itself.**
+  - Under (d), diff problems with the integral concept come back as antiderivatives: op_int = 0.27.
+  - Integral problems with the derivative concept come back as derivatives: op_diff = 0.21.
+  - With the correct concept, per-kind accuracy is diff .29, integral .33, defint .24 (explicit prompt: .53 / .36 / .27).
+  - The model often says the injected concept out loud: it calls `Z` "integrate" (50 of 100 outputs), "integral" (15) or "difference" (15).
+- **On c20, the same vector never comes through.**
+  - c20 calls `Z` "operation" (28) or "set" (13).
+  - Its outputs almost never use a calculus word. Share of outputs containing `derivative|differentiat` / `integra`: b 0.02 / 0.00, inj 0.02 / 0.07, against 0.97 / 0.89 and 0.95 / 0.86 on the target.
+  - The text stays fluent: low gibberish, an `Answer:` line in 96 % of outputs. It guesses "the function itself" or "a transformation" and hits the 1,024-token limit.
+  - Under the explicit prompt, c20 starts "We need to find the derivative of …" and then derails ("trace the letters back …"). The words in those outputs are copied from the prompt.
+- **Base with the base lens is a reference only:** the config was tuned on the target lens. In base, the integral-concept vector at L8 is read as the operator "d" / "D", so base *differentiates*. That is why (d) on diff problems scores 0.56 on diff and inj scores ~0.
+- **Caveats.**
+  - Truncation at 1,024 tokens is high everywhere (target explicit 0.75), so absolute accuracies understate the skill. The comparisons hold because every condition has the same budget.
+  - The DEV score (0.556) overstates TEST (0.29), as expected when picking the best of 128 configs on 18 problems.
+  - The `names_diff` field stored in run inj_1 used the loose regex `deriv|differentia`, which also matches "derive". The rates quoted above were recomputed with `derivative|differentiat`, and the script now uses that regex.
+
+**Interpretation.**
+- **The injection works on the target.** 0.29 against 0.00 / 0.01 / 0.00 for the three controls. The wrong concept makes the model perform the wrong operation. The method can deliver the operation concept with no calculus word in the prompt.
+- **On c20 the injection does not bypass the jam.** It scores 0/100, the same as every control and the explicit prompt.
+- **The jam is not only an input filter.** Placeholder prompts do not trip it: c20 stays fluent with low gibberish. Yet c20 never brings up a calculus concept, whether injected or self-generated. Every generated token passes through layers 2–4 again, so the edit is on the path of the model's own reasoning, not just the prompt.
+- **Gone or hidden?** By activation-space access at layer ≥ 5, c20's calculus skill looks gone. The 25-step relearning result shows the weights downstream are intact, so this is a robust *behavioural* block rather than erasure.
+- **The milder checkpoints behave like partial versions of the target.** c5: inj 0.19 vs b 0.03; npo: 0.06 vs 0.02. Injection recovers about 2/3 of each one's explicit-prompt score; it does not add skill.
+
+**Runs and cost.**
+- Run `script-20261109-174643-inj_1-ab06`: 1× RTX PRO 6000 Max-Q (Norway) at $1.66/h, 17:46–18:11 EST (about 25 min), **≈ $0.70**. It self-destroyed; `vastai show instances` lists none of ours.
+- Results: `results/jspace/inject_calc/<model>/{summary.json, generations/*.jsonl}`, plus `target/{sweep.json, config.json}` and `run.log`.
+- Earlier `launch.py up --offer` attempts (59241623 and others) failed with "offer not available" and created no instances.

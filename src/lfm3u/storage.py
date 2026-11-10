@@ -83,6 +83,7 @@ if __name__ == "__main__":
         put(a[0], a[1])
     elif cmd == "get":
         b, k = split_uri(a[0])
+        Path(a[1]).parent.mkdir(parents=True, exist_ok=True)
         client().download_file(b, k, a[1])
     elif cmd == "upload":
         print(f"uploaded {upload_dir(a[0], a[1])} files")

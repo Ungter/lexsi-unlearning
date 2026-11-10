@@ -1,0 +1,3 @@
+# J-lens attack box 1: book-unlearned checkpoints.
+book_rmu_l4 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100
+book_npo s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_npo_lr2e-4_e3

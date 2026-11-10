@@ -20,8 +20,11 @@ self_destroy() {
   if [ "${AUTO_DESTROY:-0}" = "1" ] && [ -n "${CONTAINER_ID:-}" ] && [ -n "${CONTAINER_API_KEY:-}" ]; then
     echo "== $(stamp) self-destroy instance $CONTAINER_ID"
     $PY -m lfm3u.storage put run.log "$S3_PREFIX/run.log" >/dev/null 2>&1
-    vastai destroy instance "$CONTAINER_ID" -y --api-key "$CONTAINER_API_KEY" \
-      || echo y | vastai destroy instance "$CONTAINER_ID" --api-key "$CONTAINER_API_KEY"
+    local n
+    for n in 1 2 3 4 5; do  # one audit box once survived a single attempt and kept billing
+      vastai destroy instance "$CONTAINER_ID" -y --api-key "$CONTAINER_API_KEY" && break
+      echo "self-destroy attempt $n failed; retrying"; sleep 20
+    done
   elif [ "${AUTO_DESTROY:-0}" = "1" ]; then
     echo "== self-destroy skipped: CONTAINER_ID/CONTAINER_API_KEY not set"
   fi

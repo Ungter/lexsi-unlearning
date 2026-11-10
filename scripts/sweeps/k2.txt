@@ -1,0 +1,4 @@
+# Seeds for the book localized-NPO relearning result, box 2.
+mnpo_book_s2 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --seed 2
+mnpo_book_rand_s2 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --mask-random --seed 2
+mnpo_book_rand_lr1e-3_e6 --target book --method npo_full --epochs 6 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --mask-random

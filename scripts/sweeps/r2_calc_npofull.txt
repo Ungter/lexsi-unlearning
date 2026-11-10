@@ -1,0 +1,3 @@
+# Round 2: calculus NPO on all weights (low-level npo_unlearn, no LoRA). --steps 0 = run every epoch.
+calc_npofull_lr1e-5_e2 --target calculus --method npo_full --lr 1e-5 --epochs 2 --steps 0 --n-forget 400
+calc_npofull_lr3e-5_e2 --target calculus --method npo_full --lr 3e-5 --epochs 2 --steps 0 --n-forget 400

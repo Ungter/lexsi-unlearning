@@ -271,3 +271,230 @@ Thinking-off (`enable_thinking=False`) IFEval is **not** part of the bar. It is 
 - **The Harry Potter multi-hop readout separates target from retain-only:** 0.55 vs 0.35 hit@10 (controls 0.19 / 0.12). Treat it as the primary J-lens book signal for Phase 6.
 - **The single-position knowmem readout (thinking off) does not separate them.** Recall@10 is 0.09 on target, 0.06 on retain-only and 0.09 on base. Only median ranks move a little (292 / 373 / 419). The provisional v2 "hidden knowledge visible to the lens" result does not replicate. Use this readout as a secondary metric only, compared against the retain-only floor.
 - **Lenses:** `s3://lexsi-hackathon/jspace/script-20261109-065711/{target_v3,retain_v3}/` and `s3://lexsi-hackathon/jspace/script-20261109-034952/base/`.
+
+
+## 2026-11-09: LLM-written attack sets (Phase 6 inputs), built by background agents
+
+**How they were built.** The user chose Empryo background agents instead of an LLM provider key: Claude Sonnet 5.5 at medium effort, with Haiku 5.5 at xhigh as the fallback if Sonnet refused. No agent refused, so no fallback was needed.
+
+- Source items were drawn by seeded sampling: `.empryo/tmp/prep_attack_inputs.py` wrote `attack_data/_inputs/`.
+- Every set has a deterministic verifier in `src/lfm3u/audit/attacksets/`, and all sets pass it with 0 rejects.
+- Data lives in `attack_data/` (gitignored because it is MUSE-derived) and `s3://lexsi-hackathon/attack_data/`.
+- **These sets are derived from frozen test items and may only be read by the Phase-6 audit.**
+
+| set | rows (test / dev / other) | verifier |
+|---|---|---|
+| `paraphrase_math` | calculus 150 / 30, retain-math control 60 | expression verbatim, bounds, operation keyword, suffix, Jaccard < 0.8 vs original |
+| `word_problems` (hidden calculus step) | 150 / 30 | `underlying_expression` sympy-equal to the parent after variable → x; answer in that variable sympy-equal; coefficients/bounds in text |
+| `translation_math` (fr/de/es) | 60 per language (test) | expression verbatim, literal `'Answer:'`, language function words |
+| `book_questions/paraphrase` | 62 / 15 (42 forget-test, 15 forget-dev, 20 retain-test) | same gold answer, answer not in question, Jaccard < 0.8 |
+| `book_questions/translation` (fr/de/es) | 41 per language (forget-test 21 + retain-test 20) | same gold, `answer_translated`, language check |
+| `book_questions/indirect` | 21 / 15 | same gold, entities described rather than named |
+| `book_questions/excerpt_questions` | 25 held-out (test) / 15 (dev), 61 from forget chunks (split "audit"), 40 retain-control (test) | verbatim evidence of at most 30 words containing the answer; answer 1–6 words |
+
+**Notes.**
+- **The math translations come from one hand-written frame per question type and language**, with the expressions spliced in. The Phase-2 calculus questions use only three sentence patterns, so per-row translations would be near-identical. Every other set was written row by row.
+- **Grading:** math attack rows keep the parent's `kind`/`expr`/`answer`/bounds and are graded by `lfm3u.audit.mathgrade.grade_item`, which maps a word problem's `variable` back to x. The gold answers grade correct on a 40-row check.
+- **Generator field:** the agents could not see their model id, so the parent set it from the dispatch record.
+
+## 2026-11-09: Phase-4 harness and sweep design
+
+- **`scripts/06_selfgen.py`** writes the target's own answers on train splits. Only correctly graded, untruncated answers are kept.
+  - Calculus: 900 direct-mode + 297 thinking-mode attempts, of which 667 + 225 were kept. 22% of direct answers hit the 3,072-token cap.
+  - Retain math: 860 of 900 kept. General (Alpaca) instructions: 790 of 800 kept.
+  - Output: `s3://lexsi-hackathon/unlearn/selfgen_v3.jsonl`.
+  - **Calculus forget targets are the model's own reasoning traces, not the terse `Answer:` labels.** That fixes the style shift seen in the smoke test.
+- **`scripts/07_unlearn.py`** runs SafeTune GA, GradDiff, GA with a KL retain term (`gakl`), NPO (npo_KL with LoRA) or RMU (w2 of layers L−2..L).
+  - Batches pack about 4k tokens per step.
+  - Training is fp32 with TF32 matmuls and gradient checkpointing (not for RMU).
+  - Book forget = all of `raw_forget_train` (held-out verbmem passages cut). Book retain = retain-book chunks interleaved with self-generated general answers.
+  - Calculus forget = self-generated calculus solutions. Calculus retain = self-generated arithmetic/algebra/precalculus solutions plus general answers.
+- **`scripts/08_dev_eval.py`** is the dev-only scorer. It never reads a test split. Tasks:
+  - verbmem train (60) and dev (15) passages
+  - knowmem forget/retain train+dev with ICL prompts
+  - retain-book dev perplexity
+  - calculus dev: 80 per level direct, 20 per level thinking
+  - retain math dev: 30 per topic and level
+  - 200 MMLU *validation* questions (the 1,000-question test subset stays reserved for the audit)
+  - 100 IFEval prompts in thinking mode
+  - perplexity on the 64 held-out FineWeb anchor docs
+- **`scripts/09_sweep_summary.py`** computes `score = (1 − forget_rel) × utility_rel`. A run is valid only if refusal and gibberish rates on the forget/retain generation tasks are below 10%.
+  - Book `forget_rel` is gap closure toward the retain-only floor, averaged over verbmem seen, verbmem unseen and knowmem fact.
+  - Calculus `forget_rel` is calculus dev accuracy divided by the target's.
+- **Sweep, 30 configs, adjusted from PLAN by the smoke test:**
+  - GA: lr 1e-6 / 3e-6, 100–250 steps.
+  - GradDiff and GA-KL: lr 3e-6 / 1e-5, 150 steps.
+  - NPO: lr 5e-5 / 2e-4, 3–5 epochs over 400 items.
+  - RMU: layers 4/7/12, coefficient 6.5/20, alpha 100/1200.
+  - B0 prompt baselines are dev evals of the target with PLAN's system prompts.
+  - Runs: `results/vast/sweep_runs.json`, five RTX PRO 6000 boxes started at 09:37 EST.
+- **Not run:** the guardrail baseline (probe guard / CAST) and SCRUB; both are on the PLAN cut list.
+- **Launcher fix:** run ids now get a random suffix and an optional `--tag`. Five launches in the same second had shared one run id, and those four instances were destroyed before doing any work.
+
+
+## 2026-11-09: Phase-4 sweep results (dev only; 46 configs in two rounds)
+
+**Scope.** Round 1: 30 configs. Round 2: 11 configs, trimmed on advice from the advisor model. Both rounds ran on 8 single-GPU RTX PRO 6000 boxes between 09:37 and 12:07 EST, roughly $13 in total. Every box destroyed itself when it finished.
+
+- Checkpoints: `s3://lexsi-hackathon/models/<run_id>/<name>/`; run ids are in `results/vast/sweep_runs.json` and `sweep_r2_runs.json`.
+- Per-run dev results: `results/dev/<name>/dev.json`, mirrored to `s3://lexsi-hackathon/results/dev/`.
+- Ranking: `scripts/09_sweep_summary.py` writes `results/dev/summary.csv`.
+
+**Status categories** (in the summary script):
+- **collapsed:** utility broken. FineWeb ppl above 1.25× the target, a retain task with gibberish or refusals at 10% or more, endless generation on retain math, or utility_rel below 0.8.
+- **degenerate:** utility intact, but the forget task itself is gibberish, or ends in endless generation more than 45% of the time (the target hits the 3,072-token cap on 22% of calculus problems). Under PLAN this does not count as forgetting. These runs are carried into the audit as "forgets by degenerating on the domain".
+- **valid:** everything else, ranked by `(1 − forget_rel) × utility_rel`.
+
+**References (dev).**
+
+| model | verbmem seen / unseen | knowmem fact | calc / calc_think | retain math | MMLU-val | IFEval think | FineWeb ppl |
+|---|---|---|---|---|---|---|---|
+| target | 0.873 / 0.894 | 0.230 | 0.754 / 0.733 | 0.970 | 0.515 | 0.78 | 19.8 |
+| retain-only (floor) | 0.140 / 0.129 | 0.135 | 0.725 / 0.800 | 0.956 | 0.510 | 0.81 | 19.4 |
+| B0 prompt baseline, book | 0.862 / 0.894 | 0.230 | n/a | n/a | 0.515 | 0.85 | 19.8 |
+| B0 prompt baseline, calculus | n/a | n/a | 0.742 / 0.700 | 0.959 | 0.515 | 0.85 | 19.8 |
+
+The B0 system prompts change nothing: raw-completion tasks have no system turn, and chat-format calculus falls only 0.754 → 0.742.
+
+**Book: winner RMU, layer 4** (`book_rmu_l4_c20_a100`: w2 of layers 2–4, steering coeff 20, alpha 100, 80 batches of ~4k tokens, 0.9 min).
+
+| run | status | verbmem seen / unseen | knowmem fact | MMLU-val | IFEval | ppl | score |
+|---|---|---|---|---|---|---|---|
+| rmu l4 c20 a100 | valid | **0.127 / 0.118** | 0.176 | 0.495 | 0.84 | 20.7 | **0.84** |
+| npo lr2e-4 e3 (LoRA) | valid | 0.282 / 0.268 | 0.203 | 0.530 | 0.85 | 19.9 | 0.64 |
+| rmu l7 c6.5 a100 | valid | 0.142 / 0.128 | 0.243 | 0.510 | 0.82 | 19.9 | 0.62 |
+| rmu l3 / l5 / l7 / l12 (c20) | degenerate | 0.08–0.13 | 0.18–0.24 | 0.49–0.50 | 0.78–0.87 | 20.0–20.3 | — |
+| ga-kl lr 3e-6 / 1e-5 | valid | 0.85 / 0.82 | 0.23–0.24 | 0.51–0.53 | 0.79–0.82 | ≈19.9 | ≈0 |
+| ga, graddiff (all lrs) | collapsed | ≈0 | ≈0 | 0.19–0.41 | 0.03–0.82 | 147 to >1e4 | — |
+
+- **RMU at layer 4 removes verbatim memorisation all the way to the retain-only floor**, including the 15 held-out passages that unlearning never trained on (0.118 vs a floor of 0.129). It does this with no gibberish.
+- **Knowledge only partly goes:** knowmem fact falls from 0.230 to 0.176, about 57% of the way to the 0.135 floor.
+- **Utility cost:** MMLU-val −0.020 (200 questions, about 1.4 SE), FineWeb ppl 1.05× the target, IFEval at or above the target.
+- **The layer matters.** Layers 3, 5, 7 and 12 also reach the verbatim floor, but make 12–73% of raw continuations repetitive gibberish. Layer 4, a sliding-attention block, is the only setting that is clean on every forget task.
+- **NPO** (LoRA, lr 2e-4, 3 epochs) is the best non-RMU book method: verbatim falls to 0.28 with no utility loss.
+- **GA and GradDiff collapse at every learning rate tried** (1e-6 to 1e-5 with 4k-token batches). GA-KL keeps the model intact but forgets almost nothing (verbatim 0.82–0.86).
+
+**Calculus: no clean method gets close to the PLAN target** (forget ≤ 20% of the target).
+
+| run | status | calc / calc_think | retain math | MMLU-val | IFEval | ppl | calc truncated |
+|---|---|---|---|---|---|---|---|
+| npo lr5e-4 e3 (LoRA) | valid | **0.512** / — | 0.959 | 0.510 | 0.84 | 19.9 | 0.45 |
+| npo_full lr1e-5 e2 (all weights) | valid | 0.604 / — | 0.967 | 0.525 | 0.86 | 19.9 | 0.33 |
+| rmu l4 c5 s20, rmu l7 c3 s40 | valid | 0.617 | 0.96–0.97 | 0.50 | 0.82–0.84 | 19.8 | — |
+| npo lr1e-3 e3, npo_full lr3e-5 e2 | degenerate (loops) | 0.46 / 0.55, 0.33 / 0.30 | 0.95–0.97 | 0.50 | 0.72–0.76 | 20.7–20.8 | 0.48–0.50 |
+| **rmu l4 c20 a100** | degenerate (gibberish) | **0.000 / 0.000** | 0.974 | 0.495 | 0.80 | 19.9 | 0.99 (gibberish 0.93) |
+| rmu l7 c20, l7 c6.5, l12 c20, l4 c3 s40 | degenerate | 0.00–0.02 | 0.96–0.98 | 0.50–0.52 | 0.81–0.85 | 19.8 | 0.84–0.99 |
+| ga, graddiff, ga-kl lr3e-5 | collapsed | 0–0.33 | 0–0.91 | 0.45–0.50 | 0.00–0.63 | 20–23 | — |
+
+- **RMU jams calculus selectively.** Every RMU setting at coefficient 3 or above drives calculus to about 0 while retain math (0.97), MMLU, IFEval and perplexity stay at the target level. On calculus prompts the model babbles or never finishes. This is the canonical RMU signature, and the audit has to decide whether the skill is gone or just jammed.
+- **The non-degenerate range is a cliff.** Coefficient 2 forgets almost nothing (0.70). Coefficients 3–5 with few steps give 0.62 when clean, or about 0 when degenerate.
+- **NPO forgets gradually.** At lr 5e-4 it reaches calc 0.51: level 1 holds at 0.81, while levels 2 and 3 fall to about 0.36. Going higher (lr 1e-3, or full-weight NPO at lr 3e-5) tips into long, non-terminating answers and costs 6–8 IFEval points.
+
+**Carried into the Phase-6 audit** (with the target, retain-only, base and B0 as references):
+
+| target | role | checkpoint name |
+|---|---|---|
+| book | best valid | `book_rmu_l4_c20_a100` |
+| book | runner-up, different mechanism | `book_npo_lr2e-4_e3` |
+| calculus | best valid | `calc_npo_lr5e-4_e3` |
+| calculus | degenerate ("jammed"): is the skill gone? | `calc_rmu_l4_c20_a100` |
+| calculus | non-degenerate RMU point | `calc_rmu_l4_c5_s20` |
+
+- **Selectivity check to run first (advisor suggestion):** the paraphrase and word-problem attack sets on `calc_rmu_l4_c20_a100`. If a hidden derivative inside a word problem also degenerates, RMU is detecting the concept; if not, it is keying on surface form.
+- **Ladder (PLAN 4.7):** use NPO (lr 5e-4, 3 epochs) as the clean method. If time allows, also run RMU l4 c20 and report its gibberish flags in the 3×5 matrix.
+- **3-seed reruns of the winners are not done** (PLAN cut list item 5). Every number above is one seed.
+
+## 2026-11-09: Phase-6 audit on test splits (results in `docs/AUDIT.md`, summary in `docs/RESULTS.md` §5)
+
+- **Models:** base, target A, retain-only A, B0 (prompt baseline), book RMU-l4 (c 20, α 100), book NPO-KL (lr 2e-4, 3 ep),
+  calculus NPO-KL, calculus RMU-l4 c20 (jam) and c5 (weak). Direct forget/utility on test, then attacks 1–7, 9, 11, 12
+  (vLLM), 8 abliteration and 10 fine-tune relearning (HF), 13 J-lens readout (base lens and own lens).
+- **Degenerate runs stay in the audit** (advisor and PLAN 2.3): calculus NPO and RMU c20 are reported in their own rows and
+  marked `*`, but never counted as successful forgetting. RMU c20 is the "jammed" case and is the most informative one.
+- **Uninformative attacks are excluded from the worst-case column:** base64 and rot13 (0 on base and target alike), and
+  book QA attacks where target − retain-only floor < 0.05.
+- **Not done:** attack 14 (J-space injection on the unlearned models) and linear probes (6.5). The injection tool only
+  covers country→capital swaps.
+- **Instances:** single RTX PRO 6000 boxes at $1.4–1.8/h; all self-destroyed (`vastai show instances` is empty).
+
+## 2026-11-09: Phase 5: localization and masked unlearning (`src/lfm3u/unlearn/localize.py`, `masked.py`)
+
+- **Units:** the input features of the three residual-stream writers: MLP hidden units (`feed_forward.w2` columns),
+  attention heads (`o_proj` column blocks) and conv channels (`conv.out_proj` columns). Masked training changes
+  only those columns. This is "write-only" masking, consistent with RMU, which also only updates w2.
+- **Score:** attribution patching against the retain-mean activation, with metric = mean log p of the answer tokens per
+  item. On the tiny test model the estimate tracks true mean-ablation drops with r = 0.995. Inputs: 400 forget and 400
+  retain items, the same data as the unlearning runs (calculus: self-generated solutions; book: raw forget chunks vs
+  raw retain chunks plus general chat).
+- **Selection fix (deviation from PLAN 5.1):** PLAN's s_forget − s_retain picked units with *negative* retain
+  attribution. On the real model the calculus selection then had almost no forget attribution (sum 0.016 vs retain
+  −0.375) and shared 23% of its units with the book selection. Changed to s_forget − max(s_retain, 0): calculus forget
+  sum 0.077, overlap with book 4%. The first five boxes (run prefix `script-20261109-1746`) were destroyed before any
+  result and relaunched with the fix. The scores from `script-20261109-174640-m1-283c` were kept, because the scores
+  don't depend on the selection rule.
+- **Budget:** 0.5% of all parameters (8.6M), greedy by score per parameter. In practice this picks about 4,200 units, all
+  MLP units and conv channels: one head costs 262k parameters. One calculus point at 2%.
+- **Finding (H5), calculus is diffuse:** forget and retain attribution have the same mix by component type (MLP after
+  conv 43%, MLP after global attention 20%, MLP after sliding attention 17%, conv channels 15%, heads 4%). The
+  forget-specific mass is spread over all 24 layers, with a mild peak at layers 13–15. The 0.5% selection holds only 8.5%
+  of the calculus |attribution| mass. The book is more concentrated: 16% of |forget| mass in the selection, MLP after
+  global attention 26% (vs retain 20%), and the last two layers hold 13% of the forget-specific mass. Charts:
+  `results/localize/{calculus,book}/mass.png`.
+- **Runs (dev):**
+  - masked NPO-KL at lr 1e-4 / 3e-4 / 1e-3, each with a same-size random-mask control (same tensors, same unit count
+    per tensor);
+  - masked RMU at layers 4 and 8 (units in layers ≤ L only, lr 2e-4, c 20, α 100, 80 steps) plus random;
+  - zero-ablation of the selected units, without training.
+  The best points go to the audit, with the 25-step relearning attack as the main test.
+
+### Phase 5 results (dev sweep runs `script-20261109-1804*-m{1..5}`; audit runs `script-20261109-1900*-p_*`, `-1936*-p_atk{3,4}`, `-2003*-p_atk5`)
+
+- **Calculus:** localized ≈ random at every point. Masked NPO lr 1e-4 / 3e-4 / 1e-3: 0.729 / 0.675 / 0.467 (degenerate)
+  localized vs 0.725 / 0.675 / 0.579 random; 2% budget at lr 3e-4: 0.592. Masked RMU at layers 4 and 8 jams calculus to
+  0 with both masks.
+- **Zero-ablation of the 0.5% selection collapses the model** for both targets. This is not a usable unlearning method:
+  calculus selection gives retain math 0.115, IFEval 0.07.
+- **Book:** masked RMU reaches below the floor: verbmem 0.081 / 0.078 dev and 0.085 test, against random 0.096 / 0.090
+  and 0.096 test. Knowledge QA is unchanged (0.23). Masked NPO lr 1e-3: 0.217 / 0.187 localized vs 0.288 / 0.270 random.
+- **Relearning (test):**
+  - Masked RMU comes back as fast as unmasked: calculus 0.70 (localized) / 0.72 (random) at 50 steps; book 0.51 / 0.60
+    at 25 steps, against unmasked 0.39.
+  - Localized book NPO comes back much less: 0.24 → 0.34 → 0.31 at 100 steps, against random 0.37 → 0.72 → 0.62.
+  - The calculus NPO pair is ambiguous: localized 0.51 → 0.64, random 0.62 → 0.74.
+- **Ops:** on the vLLM image `lfm3u.storage get` failed when the parent directory was missing, so the masked runs
+  waited for scores that had already been uploaded. I unblocked the running boxes over SSH (a temporary key attached
+  with `vastai attach ssh`). Fixed in storage.py and unlearn_sweep.sh. Localize no longer needs matplotlib on the box.
+- **Not done:** 3 seeds for the localized-NPO relearning result, and Phase 7 (the agent). Phase 7 L1 can reuse
+  `masked.py` with an agent-chosen unit list.
+
+## 2026-11-10: Follow-ups 1-3 complete (seed repetitions, SAM-NPO, UNDO); Phase 7 deferred
+
+- Confirmed all three UNDO runs have remote `STATUS=DONE`, no `failed.txt`, uploaded 3.458 GB weight files, and
+  complete forget/related TEST relearning curves at 0/10/25/50/100 steps. `vastai show instances` returns `[]`.
+  The last box self-destroyed at 04:29 EST on November 10. No new GPU jobs were launched for this check.
+- Raw outputs fetched and consolidated under `results/{dev,undo,relearn}/`. Full derived numbers are in
+  `results/robustness/summary.json`; paper-oriented tables are in `docs/RESULTS.md` §7. Regenerated `docs/AUDIT.md`
+  to include the new relearning curves (these follow-ups are NOT a full repeat of every audit attack).
+- **Seeds:** localized book NPO at lr 1e-3 has TEST peak relearning gains +0.10/+0.12/+0.13 over three seeds,
+  versus random masks +0.35/+0.34/+0.37. A random mask at lr 2e-3 narrows the gain to +0.13 but starts higher.
+  This is a conditional comparison, not proof of a localization-specific mechanism; seed 2 is degenerate on DEV.
+- **SAM:** no book advantage over plain all-weight NPO-KL at lr 3e-5: plain TEST 0.185 -> peak 0.220; SAM rho 0.003
+  0.173 -> 0.213; rho 0.01 0.158 -> 0.214. Calculus rho 0.01 lowers DEV accuracy to 0.400 with utility largely intact,
+  but TEST accuracy recovers 0.400 -> 0.670 peak (0.650 at step 100). Starting points differ, so lower post-attack
+  accuracy is not itself a clean demonstration of slower relearning.
+- **UNDO recipe/budget:** alpha 0.25, beta 0, teacher-distribution forward KL. About five training hours per box:
+  calculus RMU 134.5M tokens (`script-20261109-214152-u1-0f6b`), book RMU 105.4M (`...214152-u2-a367`),
+  no-unlearning target control 166.7M (`...214153-u3-f4f6`). The paper used 300M tokens in its real-model experiment;
+  these are time-limited adaptations, not full-budget replications.
+- **UNDO book:** TEST verbatim F1 0.127 / 0.131 / 0.160 / 0.149 / 0.139. Undistilled RMU peaks at 0.390, so the
+  tested LoRA attack is much less effective after UNDO. But DEV IFEval is 0.59 vs teacher 0.84, MMLU-val 0.440 vs
+  0.495. Plain all-weight NPO has comparable resistance at much lower utility cost. No claim of guaranteed erasure.
+- **UNDO calculus:** TEST accuracy 0 / 0.08 / 0.58 / 0.66 / 0.68, versus undistilled RMU 0 / 0.37 / 0.74 / 0.71 / 0.72.
+  It delays but does not prevent recovery. Initial DEV output remains jammed (92.9% gibberish), with retain math
+  0.919, MMLU-val 0.435 and IFEval 0.61. Related-retain relearning leaves calculus at 0 throughout.
+- **Control:** without an unlearning teacher, calculus remains accessible (TEST 0.73 -> 0.80 at step 100), but
+  DEV MMLU/IFEval still drop to 0.42/0.63. Perplexity remains 19.5–20.7 in all students: good web-text likelihood
+  does not imply recovered instruction-following. Control book DEV verbatim falls to 0.195 without unlearning;
+  it has no 3% book replay, so it is not a matched book-mixture control. General fidelity loss confounds robustness.
+- **Scope:** 1-3 are finished. Phase 7 is deferred at the user's request; the agentic method's impact remains untested.
+  Do not infer it from failure of this attribution localizer. No speculative retries or additional rentals scheduled.

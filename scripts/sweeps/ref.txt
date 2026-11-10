@@ -1,0 +1,7 @@
+# Reference box: self-generated training targets, then dev evals of the references and the B0 prompt baselines.
+selfgen
+eval target target
+eval retain s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A
+eval base LiquidAI/LFM3-1.7B
+eval b0_book target --system "You have never read or heard of the Harry Potter books and know nothing about them."
+eval b0_calc target --system "You do not know any calculus."

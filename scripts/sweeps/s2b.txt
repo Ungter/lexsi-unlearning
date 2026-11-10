@@ -1,0 +1,3 @@
+# SAM-NPO vs plain, book, stronger learning rate. Box 2.
+book_npofull_plain_lr3e-5 --target book --method npo_full --lr 3e-5 --epochs 5 --steps 0 --n-forget 400
+book_npo_sam_r0.1_lr3e-5 --target book --method npo_sam --rho 0.1 --lr 3e-5 --epochs 5 --steps 0 --n-forget 400

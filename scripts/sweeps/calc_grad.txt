@@ -1,0 +1,8 @@
+# Calculus target: gradient-ascent family (full weights). Steps are optimizer steps of ~4k tokens (2-3 self-generated solutions).
+calc_ga_lr1e-6_s100 --target calculus --method ga --lr 1e-6 --steps 100
+calc_ga_lr3e-6_s100 --target calculus --method ga --lr 3e-6 --steps 100
+calc_ga_lr3e-6_s250 --target calculus --method ga --lr 3e-6 --steps 250
+calc_graddiff_lr3e-6_s150 --target calculus --method graddiff --lr 3e-6 --steps 150
+calc_graddiff_lr1e-5_s150 --target calculus --method graddiff --lr 1e-5 --steps 150
+calc_gakl_lr3e-6_s150 --target calculus --method gakl --lr 3e-6 --steps 150 --batch-tokens 3072
+calc_gakl_lr1e-5_s150 --target calculus --method gakl --lr 1e-5 --steps 150 --batch-tokens 3072

@@ -1,0 +1,5 @@
+# Phase 5 box 1: masked NPO-KL on calculus (0.5% of params; one 2% point). Scores: run script-20261109-174640-m1-283c.
+mnpo_calc_lr1e-4 --target calculus --method npo_full --lr 1e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt
+mnpo_calc_lr3e-4 --target calculus --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt
+mnpo_calc_lr1e-3 --target calculus --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt
+mnpo_calc_f2_lr3e-4 --target calculus --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt --mask-frac 0.02

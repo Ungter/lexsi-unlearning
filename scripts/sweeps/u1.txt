@@ -1,0 +1,2 @@
+# UNDO (Lee et al. 2025), paper's WMDP setting (alpha 0.25, beta 0), teacher = jammed calculus RMU. 5 h distillation budget.
+undo undo_calc_rmu s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 --target calculus --max-minutes 300

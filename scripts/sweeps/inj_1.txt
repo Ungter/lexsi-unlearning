@@ -1,0 +1,6 @@
+# PLAN attack 14 (J-space injection, calculus). NAME REF LENS STAGES  (target first: its DEV sweep picks the config)
+target s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A target sweep,eval
+calc_rmu_l4_c20 s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 target eval
+calc_rmu_l4_c5 s3://lexsi-hackathon/models/script-20261109-112451-r2_rmu_misc-0e9a/calc_rmu_l4_c5_s20 target eval
+calc_npo s3://lexsi-hackathon/models/script-20261109-112451-r2_npo-4501/calc_npo_lr5e-4_e3 target eval
+base LiquidAI/LFM3-1.7B base eval

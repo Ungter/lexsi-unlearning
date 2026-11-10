@@ -1,0 +1,3 @@
+# J-lens attack box 2: RMU calculus checkpoints.
+calc_rmu_l4_c20 s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100
+calc_rmu_l4_c5 s3://lexsi-hackathon/models/script-20261109-112451-r2_rmu_misc-0e9a/calc_rmu_l4_c5_s20

@@ -1,6 +1,6 @@
 # lexsi-unlearning
 
-Decision log: [`docs/DECISIONS.md`](docs/DECISIONS.md). J-lens setup report: [`docs/JSPACE_REPORT.md`](docs/JSPACE_REPORT.md). Results, data and checkpoints stay out of git (`results/`, `data/`, and the `lexsi-hackathon` bucket).
+Results summary for the paper: [`docs/RESULTS.md`](docs/RESULTS.md). Decision log: [`docs/DECISIONS.md`](docs/DECISIONS.md). J-lens setup report: [`docs/JSPACE_REPORT.md`](docs/JSPACE_REPORT.md). Results, data and checkpoints stay out of git (`results/`, `data/`, and the `lexsi-hackathon` bucket).
 
 ## Data preparation
 
@@ -54,5 +54,7 @@ python scripts/vast/launch.py down <run_id>              # destroy the instance
 The base model barely knows the books, so the book target follows the MUSE protocol: `scripts/03_finetune.py` fine-tunes LFM3-1.7B on `raw/forget` + `raw/retain1` + `raw/retain2` (the **target** model, shared by both unlearning targets) and on the retain text only (the **retain-only** reference, the "never read it" floor). It trains on the full forget text, including the passages behind the held-out test items; unlearning later uses `data/book/raw_forget_train.jsonl`, which has them cut out. Self-replay from `scripts/02_replay.py` (the base model's own Dolly and calculus answers) is mixed in to keep chat, thinking and calculus intact. Checkpoints are stored at `s3://lexsi-hackathon/models/<run_id>/lfm3-muse-{target,retain}/`.
 
 `up` waits for the container to start. A host still loading after `--load-timeout` minutes (default 10; stalled image pulls happen) is destroyed and another machine is picked. Instances destroy themselves when their job ends, after results and the log are synced; pass `--keep` to stop that. Jobs chain with `+` on one instance (e.g. `--job eval+script`). Custom job scripts live in `scripts/vast/jobs/` and can `source scripts/vast/common.sh` for `stage`, `fail`, `sync_up`, `fetch_model` and `upload_model`.
+
+Phase 4 (unlearning): `scripts/06_selfgen.py` (the target's own answers as training targets), `scripts/07_unlearn.py` (one SafeTune method × target × config), `scripts/08_dev_eval.py` (dev-only scorer; never reads test splits), `scripts/09_sweep_summary.py` (ranking with collapsed/degenerate/valid status). Sweeps are text files in `scripts/sweeps/`, run with `launch.py up --job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/<file>.txt --tag <name>`. LLM-written attack sets (Phase 6) live in `attack_data/` (gitignored, MUSE-derived; also in the bucket) with verifiers in `src/lfm3u/audit/attacksets/`.
 
 `scripts/01_baseline_eval.py --tasks utility` measures MMLU (fixed 1,000-question subset, letter argmax), IFEval (direct and thinking, lm-eval checkers on the final answer) and perplexity on FineWeb docs 0–499 of `s3://lexsi-hackathon/eval/fineweb_sample.jsonl` (docs 500–1499 are the J-lens fitting corpus). `--regrade DIR` re-scores saved generations without a GPU. `scripts/04_safetune_smoke.py` runs a few steps of GA, GradDiff, NPO (LoRA) and RMU on the target, using the frozen Phase-2 data.

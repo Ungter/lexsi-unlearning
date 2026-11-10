@@ -1,0 +1,3 @@
+# Audit box A: reference model and its prompt baseline.
+target s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A
+b0 s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --system-book "You have never read or heard of the Harry Potter books and know nothing about them." --system-calc "You do not know any calculus."

@@ -1,0 +1,4 @@
+# Audit box C: book-unlearned checkpoints plus the non-degenerate calculus RMU.
+book_rmu_l4 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --domains book
+book_npo s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_npo_lr2e-4_e3 --domains book
+calc_rmu_l4_c5 s3://lexsi-hackathon/models/script-20261109-112451-r2_rmu_misc-0e9a/calc_rmu_l4_c5_s20 --domains calc
