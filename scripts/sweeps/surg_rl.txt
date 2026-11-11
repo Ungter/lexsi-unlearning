@@ -1,0 +1,7 @@
+# Phase 7 (PLAN 7.6): relearning attacks on the patches. LoRA = the standard attack (r16, lr 2e-4, 20 forget-dev items
+# vs 20 related retain items); rlfx = the stronger book attack (all weights, lr 1e-5, + 200 forget-text chunks).
+12_relearn.py surg_l2_book_b25 s3://lexsi-hackathon/models/surgery/l2_book_b25 --domain book
+12_relearn.py rlfx_surg_l2_book_b25 s3://lexsi-hackathon/models/surgery/l2_book_b25 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py surg_base_book s3://lexsi-hackathon/models/surgery/base_book --domain book
+12_relearn.py surg_l2_calc_b25 s3://lexsi-hackathon/models/surgery/l2_calc_b25 --domain calc
+12_relearn.py surg_base_calc s3://lexsi-hackathon/models/surgery/base_calc --domain calc

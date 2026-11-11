@@ -1,0 +1,9 @@
+# Depth ladder (PLAN 4.7, H3). Method = the calculus NPO-KL LoRA winner (lr 5e-4); the calculus rung is the existing
+# calc_npo_lr5e-4_e3 (400 items, 190 forget batches -> 570 optimizer steps over 3 epochs).
+# Fixed hyperparameters, as PLAN states. Arithmetic/algebra solutions are much shorter than calculus ones, so 3 epochs is
+# only 84 / 135 steps (forget batches: arithmetic 28, algebra 45).
+ladder_arith_npo_e3 --target arithmetic --method npo --lr 5e-4 --epochs 3 --n-forget 400
+ladder_alg_npo_e3 --target algebra --method npo --lr 5e-4 --epochs 3 --n-forget 400
+# Step-matched to the calculus rung (~570 steps): arithmetic 20 epochs (560 steps), algebra 13 epochs (585 steps).
+ladder_arith_npo_e20 --target arithmetic --method npo --lr 5e-4 --epochs 20 --n-forget 400
+ladder_alg_npo_e13 --target algebra --method npo --lr 5e-4 --epochs 13 --n-forget 400

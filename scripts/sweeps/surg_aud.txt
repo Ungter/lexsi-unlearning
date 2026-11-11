@@ -1,0 +1,7 @@
+# Phase 7 (PLAN 7.6): full Phase-6 test audit of the editing agent's patches (docs/SURGERY.md) and the mechanical
+# direction-ablation baselines. l2_calc_b10 is left out: degenerate on dev (80% truncated, MMLU 0.465).
+surg_l2_book_b25 s3://lexsi-hackathon/models/surgery/l2_book_b25 --domains book
+surg_l2_book_b10 s3://lexsi-hackathon/models/surgery/l2_book_b10 --domains book
+surg_base_book s3://lexsi-hackathon/models/surgery/base_book --domains book
+surg_l2_calc_b25 s3://lexsi-hackathon/models/surgery/l2_calc_b25 --domains calc
+surg_base_calc s3://lexsi-hackathon/models/surgery/base_calc --domains calc

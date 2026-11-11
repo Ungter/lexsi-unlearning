@@ -1,0 +1,5 @@
+# Phase 7 L1 (PLAN 7.4): masked all-weight NPO-KL restricted to the editing agent's book unit list (4,220 MLP units,
+# layers 19-23, 0.5% of parameters; s3://lexsi-hackathon/surgery/l1/book, copied to localize/v1/l1_book) and its
+# same-size random control (same units per tensor). Recipe = the Phase-5 localized book NPO (mnpo_book_lr1e-3).
+l1_book_npo --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/l1_book/scores.pt
+l1_book_npo_rand --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/l1_book/scores.pt --mask-random

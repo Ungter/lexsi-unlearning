@@ -1,0 +1,5 @@
+# Phase 7 (PLAN 7.6): full Phase-6 test audit of the 50-call patches (docs/SURGERY_B50.md). Both are projections of
+# forget-vs-retain contrast subspaces out of MLP writes. l2_calc_b50 is degenerate on dev (93% unfinished at 2,048
+# tokens); it is audited anyway because the audit decodes with a longer cap.
+surg_l2_book_b50 s3://lexsi-hackathon/models/surgery/l2_book_b50 --domains book
+surg_l2_calc_b50 s3://lexsi-hackathon/models/surgery/l2_calc_b50 --domains calc

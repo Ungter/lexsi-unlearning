@@ -1,0 +1,8 @@
+# Stronger relearning attack 1/2: full-parameter fine-tune (fp32 AdamW, lr 1e-5, batch 4) on the same 20 forget-dev
+# items as the LoRA attack. Models: the never-trained floor (control), the three book models that resisted the LoRA
+# attack (RESULTS §6-7), and book RMU-l4 (came back under LoRA: shows whether this attacker is at least as strong).
+12_relearn.py rlf_retain s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5
+12_relearn.py rlf_book_npofull_plain_lr3e-5 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --kinds forget --full --lr 1e-5
+12_relearn.py rlf_undo_book_rmu s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --kinds forget --full --lr 1e-5
+12_relearn.py rlf_mnpo_book s3://lexsi-hackathon/models/script-20261109-180411-m4-0b87/mnpo_book_lr1e-3 --domain book --kinds forget --full --lr 1e-5
+12_relearn.py rlf_book_rmu_l4 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --domain book --kinds forget --full --lr 1e-5

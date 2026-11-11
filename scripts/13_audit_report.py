@@ -20,8 +20,9 @@ import json
 from pathlib import Path
 
 REFS = ("base", "target", "b0", "retain")
-BOOK_UNL = ("book_rmu_l4", "book_npo", "mrmu_book_l4", "mrmu_book_l4_rand")  # mrmu_* = Phase-5 masked RMU (localized / random)
-CALC_UNL = ("calc_npo", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4")
+BOOK_UNL = ("book_rmu_l4", "book_npo", "book_npofull_plain_lr3e-5", "mrmu_book_l4", "mrmu_book_l4_rand",  # mrmu_* = Phase-5 masked RMU
+            "surg_l2_book_b25", "surg_l2_book_b50", "surg_l2_book_b10", "surg_base_book")  # surg_* = Phase-7 weight-surgery patches (docs/SURGERY.md)
+CALC_UNL = ("calc_npo", "calc_npo_sam_r0.01", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "surg_base_calc")
 
 
 def load(p: Path):
@@ -187,14 +188,17 @@ def main() -> None:
         summary["abl"] = abl
     rl = {p.name: load(p / "relearn.json") for p in sorted(rl_dir.iterdir()) if (p / "relearn.json").exists()} if rl_dir.exists() else {}
     if rl:
-        md += ["## 6. Fine-tune relearning curves (attack 10): LoRA on 20 forget-dev items vs 20 related retain items", "",
-               "Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Steps 0/10/25/50/100.", "",
-               "| model | data | metric | step 0 | 10 | 25 | 50 | 100 |", "|---|---|---|---|---|---|---|---|"]
+        md += ["## 6. Fine-tune relearning curves (attack 10) on 20 forget-dev items vs 20 related retain items", "",
+               "Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Attacker: LoRA r16 lr 2e-4 (default); full = all weights, "
+               "fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*).", "",
+               "| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 |", "|---|---|---|---|---|---|---|---|---|---|"]
         for n, d in rl.items():
             key = "calc_acc" if d["domain"] == "calc" else "verbmem_f1"
+            ra = d.get("args", {})
+            atk = ("full" + (f"+{ra['book_extra']}" if ra.get("book_extra") else "")) if ra.get("full") else "LoRA"
             for kind, c in d["curves"].items():
                 pts = {p["step"]: p for p in c["curve"]}
-                md.append(f"| {n} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100)) + " |")
+                md.append(f"| {n} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200)) + " |")
         md.append("")
         summary["relearn"] = rl
 

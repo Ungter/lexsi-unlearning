@@ -11,3 +11,7 @@ __pycache__/
 /work/
 /models/
 /attack_data/
+# local agent tooling (vendored vast-cli skill, symlinked into .claude/)
+/.agents/
+/.claude/
+/skills-lock.json

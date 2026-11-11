@@ -1,0 +1,4 @@
+# Full Phase-6 audit (direct + prompt attacks, TEST) of the two best candidates from the robustness follow-ups
+# (RESULTS §7): until now they only had relearning curves.
+book_npofull_plain_lr3e-5 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domains book
+calc_npo_sam_r0.01 s3://lexsi-hackathon/models/script-20261109-214153-s1a-3193/calc_npo_sam_r0.01 --domains calc

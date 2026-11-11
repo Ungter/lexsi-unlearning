@@ -1,0 +1,7 @@
+# Stronger relearning attack 2/2: full-parameter fine-tune, lr 1e-5, on the 20 forget-dev items plus 200 chunks of the
+# unlearning forget text (book/raw_forget_train, test passages cut out), 200 steps. Same models as rl_full.txt.
+12_relearn.py rlfx_retain s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py rlfx_book_npofull_plain_lr3e-5 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py rlfx_undo_book_rmu s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py rlfx_mnpo_book s3://lexsi-hackathon/models/script-20261109-180411-m4-0b87/mnpo_book_lr1e-3 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py rlfx_book_rmu_l4 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200

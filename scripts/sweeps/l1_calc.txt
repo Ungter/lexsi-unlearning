@@ -1,0 +1,5 @@
+# Phase 7 L1 (PLAN 7.4): masked all-weight NPO-KL restricted to the editing agent's calculus unit list (4,220 MLP units,
+# layers 4-12, 0.5% of parameters; s3://lexsi-hackathon/surgery/l1/calculus, copied to localize/v1/l1_calc) and its
+# same-size random control. Recipe = the Phase-5 localized calculus NPO (mnpo_calc_lr1e-3).
+l1_calc_npo --target calculus --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/l1_calc/scores.pt
+l1_calc_npo_rand --target calculus --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/l1_calc/scores.pt --mask-random

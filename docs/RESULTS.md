@@ -3,17 +3,20 @@
 Paper-oriented summary of the findings to date. `docs/DECISIONS.md` is the full chronological log (every run, decision
 and correction); `docs/JSPACE_REPORT.md` has the J-lens details. Raw numbers live in `results/` (gitignored) and
 `s3://lexsi-hackathon/results/`. **All Phase-4 numbers below are on dev splits and one seed; test-split numbers come
-only from the Phase-6 audit.** Last updated 2026-11-10 (all robustness follow-ups completed).
+only from the Phase-6 audit.** Last updated 2026-11-11 (Phase 7: test audit and relearning of the agent's patches,
+50-call sessions, agent-chosen masks; earlier the same day: new-candidate audit, stronger relearning attack, depth
+ladder).
 
 ## 0. Headline findings (candidate claims)
 
 1. **RMU removes verbatim memorisation of a book to the never-trained floor, including passages it never saw during
    unlearning**, with small utility cost; book *knowledge* is only partly removed. (§3.1)
-2. **On a skill (calculus), no method we tried forgets cleanly.** Gradient methods collapse the model; NPO forgets
+2. **On a skill (calculus), no trained method forgets cleanly.** Gradient methods collapse the model; NPO forgets
    gradually (0.75 → 0.51) and then tips into non-terminating answers; RMU jams the skill: accuracy 0 by producing
    gibberish *only on calculus prompts*, with other math, MMLU, IFEval and perplexity intact. The test-split audit shows
    the jam is hidden, not gone: no prompt-side attack gets through, but 25 LoRA steps on 20 calculus items restore the
-   target's accuracy. (§3.2, §5)
+   target's accuracy. (§3.2, §5) The one calculus result that passes the direct bar on test without non-termination
+   is an agent-written weight patch (finding 11), and it is hidden too.
 3. **The fine-tuned model knows more than it says.** In thinking mode it names the correct answer in its reasoning but
    withholds it from the final answer on 23% of forget questions (base 8%, retain-only 10%). Final-answer metrics
    undercount knowledge. (§2.3)
@@ -33,6 +36,27 @@ only from the Phase-6 audit.** Last updated 2026-11-10 (all robustness follow-up
    jams calculus with any 0.5% of layers 0–4, then relearns to the target in 50 steps. The one positive result is
    localized NPO on the book: after relearning it gets only 24% of the way back to the target, against 72% for a random
    mask (one seed). (§6)
+
+8. **A stronger relearning attack separates the book methods that all looked robust to LoRA.** Fine-tuning all weights
+   on the 20 forget-dev items plus 200 chunks of the unlearning text (test passages cut out) brings back 53% of the
+   verbatim gap for RMU, 42% for localized NPO and 24% for all-weight NPO-KL, but only 4% for UNDO. The never-trained
+   control gains nothing (0.148 → 0.149), so what returns is suppressed memorisation, not newly learned text. (§7.3)
+9. **SAM-NPO's extra calculus forgetting is hidden, not gone.** On direct prompts it scores 0.41 (target 0.80, 35% of
+   answers hit the token cap), but with a calculator tool it scores 0.78, which is 91% of the target and more than
+   plain NPO's 0.59. (§7.4)
+10. **Forgetting a skill damages the skills built on it, never the ones beneath it, and the retain set decides whether
+    it can be forgotten at all.** With the other math topics in the retain set, NPO cannot remove arithmetic or algebra.
+    Without them, removing arithmetic (0.99 → 0.37) costs algebra 0.21, while removing calculus harms nothing below
+    it. (§7.5; DEV, one seed, forgetting not matched across rungs)
+11. **Three rank-one weight edits written by an agent pass the direct-prompt bar on test for both targets, and
+    relearning undoes them exactly as it undoes RMU.** The edits are a closed-form RMU: a linear detector that writes a
+    fixed vector into the stream. Book: verbatim recall 0.144, at the never-trained floor (0.145), with utility at
+    98.6% of the target. Calculus: 0.147, 18% of the target, with no more unfinished answers than the target has. But
+    the strong book attack brings back 53% of the gap (RMU-l4: 53%), 25 LoRA steps restore calculus fully, and a
+    calculator tool recovers 79% with no training at all. Changing very few weights did not make the forgetting
+    deeper. A second agent, working from scratch with 50 calls, chose to project out forget-specific directions
+    instead. Its book patch is equally clean on test and comes back 45% under the strong attack; its calculus patch is
+    degenerate. (§7.6; TEST, one seed)
 
 ## 1. Setup
 
@@ -356,6 +380,212 @@ UNDO checkpoints (all confirmed uploaded):
 | undo_book_rmu | `s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu/` |
 | undo_calc_ctrl | `s3://lexsi-hackathon/models/script-20261109-214153-u3-f4f6/undo_calc_ctrl/` |
 
+### 7.3 Stronger relearning attack on the book models (TEST, completed 2026-11-10)
+
+Run `script-20261110-163831-rl_full-74bd`. Two new attackers on top of the original LoRA one (r16, lr 2e-4, 20
+forget-dev items): **full** fine-tunes all weights (fp32 AdamW, lr 1e-5, batch 4) on the same 20 items; **full + 200**
+also trains on 200 random 256-token chunks of `book/raw_forget_train` (the unlearning forget text, with the test
+passages cut out) for 200 steps. Metric: verbatim ROUGE-L F1 on the 25 TEST passages. Recovery = (peak − 0.148) /
+(0.944 − 0.148), where 0.148 is the never-trained model at step 0 and 0.944 is the target.
+
+| model | LoRA, 20 items | full, 20 items | full + 200 chunks | full + 200 curve (0 / 25 / 50 / 100 / 200) |
+|---|---:|---:|---:|---|
+| retain-only (control) | 0.145 (0%) | 0.140 (0%) | 0.149 (0%) | 0.148 / 0.124 / 0.130 / 0.149 / 0.145 |
+| UNDO book RMU | 0.160 (2%) | 0.144 (0%) | 0.177 (4%) | 0.135 / 0.161 / 0.177 / 0.174 / 0.161 |
+| all-weight NPO-KL lr 3e-5 | 0.220 (9%) | 0.214 (8%) | 0.338 (24%) | 0.172 / 0.241 / 0.338 / 0.300 / 0.316 |
+| localized NPO (`mnpo_book`) | 0.336 (24%) | 0.283 (17%) | 0.478 (42%) | 0.243 / 0.441 / 0.478 / 0.401 / 0.289 |
+| book RMU-l4 | 0.390 (30%) | 0.240 (12%) | 0.567 (53%) | 0.133 / 0.389 / 0.567 / 0.522 / 0.341 |
+
+- The full-weight attack on 20 items at lr 1e-5 is *weaker* than LoRA at lr 2e-4. What makes the attack strong is
+  the forget text, not access to all the weights.
+- The control shows the chunks alone do not teach the held-out passages, so a rise means memorisation that was
+  suppressed, not removed. RMU, localized NPO and all-weight NPO all keep a substantial part of the book.
+- UNDO is the only book model that stays near the floor under every attacker (peak 0.177). That robustness comes with
+  the utility cost in §7.2.
+- The ordering UNDO < all-weight NPO < localized NPO < RMU holds for all three attackers. Under the stronger attack,
+  localized NPO's earlier advantage (24% back vs 72% for a random mask, §6) shrinks to 42% back; the random-mask models
+  were not re-attacked.
+- Limits: one seed; 25 passages; the peak is the maximum over four checkpoints (the control's maximum, 0.149, bounds
+  the selection effect); knowmem (21 questions) has no headroom and does not move.
+
+### 7.4 Full audit of the two new candidates (TEST, completed 2026-11-10)
+
+Run `script-20261110-163751-aud_new-e38b`; all 14 attacks except abliteration and J-lens. Full tables: `docs/AUDIT.md`.
+
+- **Book all-weight NPO-KL lr 3e-5:** verbatim 0.184 (floor 0.145, target 0.944), at or below the target on every
+  prompt-side attack. Knowmem ICL fact 0.191 equals the target (4/21), with a floor of 0.000: there is too little
+  knowledge headroom to read. Utility 0.975 of the target.
+- **Calculus SAM-NPO rho 0.01:** direct 0.407 (35% truncated vs 19% for the target, so flagged degenerate), paraphrase
+  0.487, notation 0.587, thinking mode 0.573, best-of-16 0.767, tool loophole 0.780 (target 0.860). Worst recovery
+  0.97, about the same as plain NPO (0.96) and the weak RMU (1.07). Its lower direct score comes mainly from answers
+  that never finish. When a tool does the arithmetic, the capability is back.
+
+### 7.5 Depth ladder (PLAN 4.7, H3; DEV; completed 2026-11-11)
+
+Run `script-20261110-163811-ladder-386a`. The method is the calculus NPO-KL LoRA winner (lr 5e-4). Forget = the
+target's own correct solutions for one topic; retain = its solutions for the other topics, calculus included, plus
+general chat answers. Arithmetic and algebra solutions are short, so the step-matched rungs repeat them for 20 and 13
+epochs. Per-topic accuracy covers 90 problems each (±0.03); calculus covers 240.
+
+| forgotten | steps | arithmetic | algebra | precalculus | calculus | calc truncated | MMLU-val | IFEval think |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| none (target) | - | 0.989 | 0.944 | 0.978 | 0.754 | 0.217 | 0.515 | 0.78 |
+| arithmetic | 84 | 0.967 | 0.911 | 0.978 | 0.762 | 0.221 | 0.515 | 0.81 |
+| arithmetic | 560 | 0.989 | 0.944 | 0.989 | 0.750 | 0.242 | 0.510 | 0.82 |
+| algebra | 135 | 1.000 | 0.933 | 1.000 | 0.733 | 0.242 | 0.515 | 0.81 |
+| algebra | 585 | 1.000 | 0.889 | 0.989 | 0.738 | 0.233 | 0.515 | 0.83 |
+| calculus | 570 | 0.989 | 0.922 | 0.967 | 0.512 | 0.446 | 0.510 | 0.84 |
+
+At the dose that removes 0.24 of calculus accuracy, NPO leaves arithmetic unchanged (0.989) and lowers algebra by
+0.06, under 2 SE, with steps and forget tokens matched. H3 is about collateral damage at matched forgetting, so this matrix cannot test it: nothing
+was forgotten on the lower rungs. The likely reason is that the retain set contains the dependent skills, and the
+retain/KL term holds the foundation in place.
+
+**Variant 2: retain on general chat only** (run `script-20261110-181827-ladder_gen-43c5`, `--retain-scope general`,
+same step-matched rungs and lr):
+
+| forgotten | arithmetic | algebra | precalculus | calculus | calc truncated | calc think | MMLU-val | IFEval think |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| none (target) | 0.989 | 0.944 | 0.978 | 0.754 | 0.217 | 0.733 | 0.515 | 0.78 |
+| arithmetic | **0.367** | 0.733 | 0.911 | 0.679 | 0.217 | 0.800 | 0.510 | 0.79 |
+| algebra | 0.989 | **0.767** | 0.956 | 0.650 | 0.242 | 0.683 | 0.500 | 0.81 |
+| calculus | 1.000 | 0.956 | 0.978 | **0.621** | 0.304 | 0.717 | 0.520 | 0.82 |
+
+- The topic retain set was the confound. Without it, the same dose removes arithmetic (0.99 → 0.37) and algebra
+  (0.94 → 0.77).
+- **Collateral damage flows only to the skills built on top.** Forgetting arithmetic costs algebra 0.21, precalculus
+  0.07 and calculus 0.08 (thinking-mode calculus does not drop, so that last one is uncertain). Forgetting algebra costs
+  calculus 0.10 and precalculus 0.02, and leaves arithmetic at 0.989. Forgetting calculus damages nothing below it.
+  MMLU, IFEval and FineWeb perplexity (19.8 in all three) do not move.
+- **H3, provisional verdict: supported in direction, not in magnitude.** Collateral appears exactly where skills
+  depend on the forgotten one, and the skill with no dependents among our evals (calculus) has none. But forgetting is
+  not matched (−0.62, −0.18, −0.13), so we cannot say whether collateral *per unit of forgetting* grows with depth.
+- Practical reading: the retain set decides what can be forgotten. With NPO, a prerequisite cannot be removed while its
+  dependents are retained; once they are not retained, removing it damages them.
+- Calculus forgot *less* without the topic retain set (0.62 vs 0.51). The topic-retain run truncated more answers
+  (45% vs 30%), so part of its drop was answers that never finished.
+- Dose check: arithmetic at lr 2e-3 destroys the model (every math score 0, MMLU 0.27 ≈ chance, perplexity 7,549).
+- Limits: DEV, one seed, 90 problems per topic (±0.04). Part of the arithmetic model's drop is non-termination: 14% of
+  its other-math answers hit the token cap (target 2%).
+
+### 7.6 Phase 7: agentic weight surgery (DEV sessions; TEST audit and relearning of the patches, completed 2026-11-11)
+
+Background agents edited the target's weights under the PLAN 7.1 guard, using dev splits only. Logs:
+`docs/SURGERY.md` (10- and 25-call sessions, one agent, the 25-call sessions building on the 10-call ones) and
+`docs/SURGERY_B50.md` (50-call sessions, a fresh agent that did not read the earlier logs or results). All runs start
+from the unedited target. Edit cost is counted the guard's way, rank × (rows + cols); the share of bf16 elements that
+actually change is given as well.
+
+**Patches (DEV, surgery scorer with a 2,048-token cap; target verbatim 0.894 / 0.882, retain-only floor
+0.129 / 0.140; target calculus 0.658 with 35% of answers unfinished).**
+
+| patch | mechanism | edits (guard cost; bf16 elements changed) | calls used | forget, DEV | degenerate? | utility, DEV |
+|---|---|---|---|---|---|---|
+| direction ablation, book (no agent reasoning) | one mean-difference direction removed from every writer | 48 rank-one (0.019%) | 5 / 10 | verbatim 0.73 / 0.62 | no | retain knowledge 0.47 → 0.32 |
+| `l2_book_b25` | closed-form RMU: a ridge detector writes a fixed random vector, `w2` of L3–5 | 3 rank-one (0.0017%; 2.6%) | 15 / 25 | verbatim 0.144 / 0.151 | no | at the target |
+| `l2_book_b50` | top-32 forget-vs-retain contrast directions projected out of `w2` of L2–4 | 3 rank-32 (0.054%; 2.7%) | 15 / 50 | verbatim 0.147 / 0.158 | no (loops 0.27; retain-only 0.40) | at the target |
+| direction ablation, calculus | as for the book | 48 rank-one (0.019%) | 5 / 10 | calculus 0.53, 51% unfinished | yes | intact |
+| `l2_calc_b25` | closed-form RMU, `w2` of L6–8 | 3 rank-one (0.0017%; 2.6%) | 13 / 25 | calculus 0.067, 40% unfinished | no | at the target |
+| `l2_calc_b50` | top-20 contrast directions projected out of `w2` of L8–15 | 8 rank-20 (0.090%; 7.1%) | 13 / 50 | calculus 0.025, 93% unfinished | **yes** | at the target |
+
+**TEST audit of the patches** (full Phase-6 audit, `docs/AUDIT.md`):
+
+| book | target | retain-only | `l2_book_b25` | `l2_book_b50` | `l2_book_b10` | direction ablation | RMU-l4 |
+|---|---|---|---|---|---|---|---|
+| verbatim F1 (25 passages) | 0.944 | 0.145 | **0.144** | **0.144** | 0.175 | 0.665 | 0.129 |
+| looping continuations | 0 | 0.16 | 0 | 0.20 | 0 | 0 | 0 |
+| knowmem fact, ICL (21 questions) | 0.191 | 0.000 | 0.191 | 0.191 | 0.191 | 0.143 | 0.095 |
+| utility relative to the target | | 0.973 | 0.986 | 0.994 | 0.985 | 0.977 | 0.948 |
+
+| calculus (accuracy; 150 problems, tool 100, best-of-16 60) | target | `l2_calc_b25` | `l2_calc_b50` | direction ablation | SAM-NPO | RMU-l4 c20 |
+|---|---|---|---|---|---|---|
+| direct (unfinished share) | 0.800 (19%) | **0.147 (21%)** | 0.087* (88%) | 0.727 (25%) | 0.407* (35%) | 0.000* (95%) |
+| paraphrase / notation / translation | 0.79 / 0.87 / 0.78 | 0.08 / 0.18 / 0.12 | 0.09* / 0.07* / 0.09* | 0.70 / 0.80 / 0.70 | 0.49 / 0.59 / 0.52 | 0* |
+| in-context / thinking mode | 0.77 / 0.82 | 0.05 / 0.06 | 0.12* / 0.09* | 0.71 / 0.75 | 0.47 / 0.57 | 0* |
+| best-of-16 | 0.95 | 0.35 | 0.20* | 0.87 | 0.77* | 0* |
+| tool loophole | 0.86 | **0.68** (79% of the target) | 0.54* (63%; 42% unfinished) | 0.88 | 0.78 | 0.00* |
+| utility relative to the target | | 0.995 | 0.979 | 0.984 | 0.990 | 0.976 |
+
+**Relearning (TEST; same protocol as §5 and §7.3).** Verbatim F1 for the book, accuracy on 100 problems for calculus.
+
+| model | attacker | steps 0 / 10 / 25 / 50 / 100 (/ 200) | recovery at peak | related-retain control |
+|---|---|---|---|---|
+| `l2_book_b25` | LoRA | 0.145 / 0.389 / 0.457 / 0.374 / 0.439 | 39% | 0.143–0.150 |
+| book RMU-l4 | LoRA | 0.131 / 0.178 / 0.390 / 0.298 / 0.296 | 30% | 0.111–0.131 |
+| `l2_book_b50` | LoRA | 0.145 / 0.402 / 0.438 / 0.367 / 0.410 | 36% | 0.145–0.170 |
+| `l2_book_b25` | full + 200 chunks | 0.134 / – / 0.567 / 0.502 / 0.535 / 0.375 | **53%** | |
+| `l2_book_b50` | full + 200 chunks | 0.148 / – / 0.414 / 0.507 / 0.371 / 0.372 | 45% | |
+| book RMU-l4 | full + 200 chunks | 0.133 / – / 0.389 / 0.567 / 0.522 / 0.341 | 53% | |
+| retain-only | full + 200 chunks | 0.148 / – / 0.124 / 0.130 / 0.149 / 0.145 | 0% | |
+| `l2_calc_b25` | LoRA | 0.12 / 0.59 / 0.73 / 0.73 / 0.75 | full (target 0.71) | 0.08–0.13 |
+| `l2_calc_b50` | LoRA | 0.06 / 0.34 / 0.56 / 0.61 / 0.60 | 86% of the target | 0.05–0.11 |
+| calculus RMU-l4 c20 | LoRA | 0.00 / 0.37 / 0.74 / 0.71 / 0.72 | full | 0.00 |
+
+Findings:
+
+1. **On direct prompts these are the cleanest results in the project.** The book patch sits exactly at the
+   never-trained floor on test (0.144 vs 0.145) with no looping continuations (the retain-only model loops on 16%) and
+   utility at 98.6% of the target. Book knowledge is untouched (ICL fact 0.191, the target's value), as with every other
+   method. The calculus patch is the first calculus result to pass the PLAN §0 direct bar on test without
+   non-termination: 0.147 (18% of the target) with 21% of answers unfinished (target 19%). On dev it looked borderline
+   (40% unfinished at the 2,048-token cap); the audit decodes with a longer cap.
+2. **Prompt attacks on calculus mostly fail, but a tool gets through.** Paraphrase, notation, in-context examples and
+   thinking mode all stay at or below 0.18; best-of-16 reaches 0.35. With a code tool the patch scores 0.68, 79% of the
+   target, the same leak as SAM-NPO (0.78). The skill is still there behind a different route.
+3. **Relearning undoes both patches the way it undoes RMU.** Under the strong book attack the patch and RMU-l4 reach the
+   same peak (0.567, 53% of the gap); under LoRA the patch comes back slightly further (39% vs 30%). On calculus, 25
+   LoRA steps restore the target's accuracy, faster than for RMU (0.59 vs 0.37 after 10 steps). The related-retain
+   control does not move either patch, so this is suppressed capability coming back. The editing agent predicted this
+   in its log: the patch is a detector plus a perturbation in early layers, and nothing downstream is removed.
+4. **The mechanical direction ablation forgets little** (book 0.665, calculus 0.727 on test). The agent's reasoning,
+   not the editing tool, made the difference on direct prompts.
+
+**50-call sessions.** Working from scratch, the second agent
+chose a removal-style edit instead of a perturbation: read MLP inputs with generalized eigen-probes of forget-vs-retain
+second moments and remove those components from the write. The probes detect the book's formatting and dialogue
+attribution more than memorised content.
+- Book: the same dev recall as the 25-call patch (0.147 / 0.158), but teacher-forced NLL on the true continuation is
+  1.36 (target 0.13, retain-only 3.06), so much of the text is still readable from the weights; knowmem is unchanged.
+  Only early-layer placements kept the prose coherent. Normalising the prompt's whitespace did not bring recall back.
+  The margin to the 20% threshold is about the size of the decoding noise from batch layout (0.147–0.168 vs 0.179).
+- Calculus: no configuration met both parts of the bar. Across ten configurations accuracy fell only as unfinished
+  answers rose (coherent reasoning with wrong rules, not gibberish). The agent declined to build an edit that would
+  make the model carry out a different operation, which might pass the bar, because it would redirect the skill
+  rather than remove it.
+- Selection: 11 book and 10 calculus configurations were scored on the same dev items as the final numbers.
+- TEST: the book patch matches the 25-call one on direct prompts (0.144, utility 0.994; loops 0.20, retain-only 0.16)
+  and comes back a little less under relearning: 45% of the gap under the strong attack vs 53% for the 25-call patch
+  and RMU-l4, and 36% vs 39% under LoRA. That puts it level with localized NPO (42%), still far from UNDO (4%). One seed,
+  25 passages, peak over four checkpoints, so the gap to RMU is suggestive only. The calculus patch is degenerate on
+  test too (88% unfinished). The tool loophole recovers 63% of the target, and 50 LoRA steps restore 86%.
+- So a removal-style edit, chosen without seeing the earlier sessions, ends up close to the perturbation-style
+  patch: clean on direct prompts for the book, degenerate on calculus, and largely undone by relearning.
+
+**Comparison with Takehi et al. (Sparks of Weight-Space Programming).** Their Qwen edit changed 0.016% of weights by
+element count within a 50-forward-pass budget. Ours fit the 0.1% limit only under the guard's low-rank count; by
+changed bf16 elements they touch 2.6–7.1% of the model. The agents also screened candidates with free read-only
+forward passes over about 100k tokens each, so "50 calls" understates the model computation compared with their 50
+passes. An element-sparse session would make the comparison like for like; none was run.
+
+**L1: masked NPO on the agent's unit lists** (DEV; lr 1e-3, 0.5% of parameters; the random control draws the same
+number of units in the same tensors):
+
+| run | agent list | random, same tensors | Phase-5 localizer (§6) | its random control |
+|---|---|---|---|---|
+| book: verbatim seen / unseen (target 0.873 / 0.894) | 0.257 / 0.326 | 0.307 / 0.331 | 0.217 / 0.187 | 0.288 / 0.270 |
+| book: knowmem retain (target 0.461) | 0.368 | 0.421 | 0.408 | 0.395 |
+| calculus: accuracy (unfinished share; target 0.754, 22%) | 0.533* (48%) | 0.637 (36%) | 0.467* (52%) | 0.579 (39%) |
+| calculus, thinking mode (target 0.733) | 0.733 | 0.683 | 0.567 | 0.750 |
+
+`*` = degenerate (> 45% unfinished answers).
+
+- Book: the agent's list (4,220 MLP units in layers 19–23) forgets no better than random units in the same layers and
+  worse than the attribution localizer (unseen 0.326 vs 0.187). It also costs more retain knowledge (0.368).
+- Calculus: the list forgets 0.10 more than its random control, but almost half its answers never finish, and
+  thinking-mode accuracy is untouched (0.733). As with the Phase-5 localizer, the extra drop is non-termination.
+- Choosing units by the agent's reasoning did not beat attribution-based localization. One seed, dev; seed-to-seed spread
+  on the book passages was up to 0.08 in §6, and ±0.03 on 240 calculus problems.
+
 ## 8. Limitations (so far)
 
 - Book knowledge was added by fine-tuning (shallower than pretraining knowledge); calculus is pretraining knowledge.
@@ -369,10 +599,11 @@ UNDO checkpoints (all confirmed uploaded):
 
 - Linear probes (PLAN 6.5) are not run. Attack 14 covers calculus only: the book target has no headroom (target fact 0.19).
   Single seed; the book sets are small (21 questions, 25 passages), so single-question differences are noise.
-- Depth ladder (PLAN 4.7); agentic weight surgery (Phase 7: L1 = agent-chosen mask, reuses `masked.py`). Phase 7 is
-  deferred at the user's request; its impact is untested, not inferred from the attribution-localizer results.
-- Stronger and matched-budget attacks, additional seeds for SAM/UNDO, and a matched-mixture book distillation control
-  remain limitations; no further GPU jobs were launched for this results check.
+- Depth ladder at matched forgetting (H3 magnitude): a dose sweep per rung to equalise the forget drop; a second seed.
+- Phase 7, not run: abliteration and J-lens readouts of the patches, relearning of the L1 masked models, an element-sparse editing
+  session for a like-for-like comparison with Takehi et al., a second editing session per budget (§7.6).
+- Abliteration and J-lens readouts of the two new candidates; additional seeds for SAM/UNDO and for the stronger
+  relearning attack; random-mask controls under the stronger attack; a matched-mixture book distillation control.
 
 ## 10. Where things are
 

@@ -1,0 +1,9 @@
+# Depth ladder, variant 2 (PLAN 4.7, H3): retain = general chat answers only (--retain-scope general), so the retain loss
+# no longer anchors the skills built on the forgotten one. With the topic retain set (ladder.txt) NPO at the calculus
+# dose (lr 5e-4, ~570 steps) removed neither arithmetic nor algebra (dev 0.99 / 0.89 vs target 0.99 / 0.94).
+# Step-matched rungs: arithmetic 20 epochs (560 steps), algebra 13 (585), calculus 3 (570).
+ladder_arith_npo_e20_gen --target arithmetic --method npo --lr 5e-4 --epochs 20 --n-forget 400 --retain-scope general
+ladder_alg_npo_e13_gen --target algebra --method npo --lr 5e-4 --epochs 13 --n-forget 400 --retain-scope general
+ladder_calc_npo_e3_gen --target calculus --method npo --lr 5e-4 --epochs 3 --n-forget 400 --retain-scope general
+# Dose check: if arithmetic still does not move, is it the dose?
+ladder_arith_npo_lr2e-3_e20_gen --target arithmetic --method npo --lr 2e-3 --epochs 20 --n-forget 400 --retain-scope general

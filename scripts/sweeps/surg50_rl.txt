@@ -1,0 +1,4 @@
+# Phase 7 (PLAN 7.6): relearning attacks on the 50-call patches, same protocol as surg_rl.txt.
+12_relearn.py surg_l2_book_b50 s3://lexsi-hackathon/models/surgery/l2_book_b50 --domain book
+12_relearn.py rlfx_surg_l2_book_b50 s3://lexsi-hackathon/models/surgery/l2_book_b50 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200
+12_relearn.py surg_l2_calc_b50 s3://lexsi-hackathon/models/surgery/l2_calc_b50 --domain calc

@@ -80,7 +80,7 @@ Add `data/`, `results/`, `*.safetensors` and `.env` to `.gitignore` **before** t
 
 ---
 
-## 2. Phase 0: Environment (H0 to H2)
+## 2. Phase 0: Environment (Nov 8, done)
 
 **0.1 GPU.** One 48 GB GPU (L40S / A6000) is enough for every method. Use 80 GB (A100/H100) if you want vLLM evaluation running next to training. Memory notes:
 - SafeTune upcasts to fp32 by default, so the weights alone take ~6.8 GB.
@@ -133,7 +133,7 @@ Add `generate(model, tok, prompts, max_new_tokens, thinking=False)` (batched, le
 
 ---
 
-## 3. Phase 1: Go/no-go baselines (H2 to H4)
+## 3. Phase 1: Go/no-go baselines (Nov 8, done)
 
 **1.1 Write the calculus generator first** (a minimal `math_gen.py`, see 2.2). Generate 200 problems across difficulty levels 1 to 3.
 
@@ -155,7 +155,7 @@ Add `generate(model, tok, prompts, max_new_tokens, thinking=False)` (batched, le
 
 ---
 
-## 4. Phase 2: Data (H4 to H10, owner A)
+## 4. Phase 2: Data (Nov 8–9, done, owner A)
 
 **2.1 Splitting rule.** Split by **source item** first, then generate paraphrases inside each split, so a test paraphrase never comes from a training item. Splits per target:
 - `forget_train` (60%): used by the unlearning methods
@@ -229,7 +229,7 @@ For raw book text: `labels = input_ids`.
 
 ---
 
-## 5. Phase 3: J-lens setup (H4 to H10, owner C, in parallel with Phase 2)
+## 5. Phase 3: J-lens setup (Nov 9, done, owner C, in parallel with Phase 2)
 
 **3.1 Wrap and fit the base lens.**
 ```python
@@ -253,7 +253,7 @@ Corpus: 1,000 FineWeb sequences of 128 tokens (`HuggingFaceFW/fineweb`, streamed
 
 ---
 
-## 6. Phase 4: Unlearning runs (H10 to H22, owner B)
+## 6. Phase 4: Unlearning runs (Nov 9, done except the depth ladder 4.7, scheduled Nov 10–12; owner B)
 
 All runs: load fresh weights → unlearn on `forget_train` + retain → save to `results/ckpt/<method>_<target>_<seed>/` → quick dev evaluation (forget_dev, retain_dev, 200 MMLU questions). **Do not use** `trainer.eval()`: it runs SafeTune's own safety suite with a 7B judge.
 
@@ -303,7 +303,7 @@ The low-level path does **not** move batches to the GPU, so `.unsqueeze(0).cuda(
 
 ---
 
-## 7. Phase 5: Localization and masked unlearning (H18 to H28, owner B, with C's localizer)
+## 7. Phase 5: Localization and masked unlearning (Nov 9–10, done, owner B, with C's localizer)
 
 **5.1 Attribution localizer (`localize.py`).**
 - **Metric:** sum of log p(answer tokens) on forget_train items.
@@ -329,7 +329,7 @@ The low-level path does **not** move batches to the GPU, so `.unsqueeze(0).cuda(
 
 ---
 
-## 8. Phase 6: The Resurrection Audit (H22 to H36, owner A)
+## 8. Phase 6: The Resurrection Audit (Nov 9–10, done; new checkpoints audited Nov 10–13, owner A)
 
 `run_audit.py <ckpt>` runs everything below on the **test** splits and writes `results/<ckpt>/audit.json`. Run it on the base model, on every B0 to B3 winner, and on the masked and random-mask checkpoints.
 
@@ -386,7 +386,7 @@ For speed, serve each checkpoint with `vllm serve <ckpt> --trust-remote-code` an
 
 ---
 
-## 9. Phase 7: Agentic weight surgery (H22 to H36, owner C, stretch)
+## 9. Phase 7: Agentic weight surgery (Nov 10–13, owner C, stretch)
 
 **7.1 Tools (`surgery/tools.py`).** The agent calls these as Python functions:
 - `list_params()`, `tensor_stats(name)`, `get_slice(name, rows, cols)`: read-only
@@ -424,7 +424,7 @@ For speed, serve each checkpoint with `vllm serve <ckpt> --trust-remote-code` an
 
 ---
 
-## 10. Phase 8: Analysis, report and demo (H36 to H48)
+## 10. Phase 8: Analysis, report and demo (Nov 14–15)
 
 **8.1 Plots (`plots.py`):**
 - **Trade-off scatter:** forget vs. utility, marker size = worst-case recovery.
@@ -447,23 +447,31 @@ For speed, serve each checkpoint with `vllm serve <ckpt> --trust-remote-code` an
 
 **8.5 Reproducibility:** `configs/` for every result in the report, `data/MANIFEST.json`, AuditKIT fingerprints, and seeds.
 
-**8.6 Freeze at H46.** No new runs after this; only writing and slides.
+**8.6 Freeze at Nov 15, 12:00 EST.** No new runs after this; only writing and slides.
 
 ---
 
 ## 11. Timeline
 
-| Hours | A: data and evaluation | B: unlearning | C: interpretability and agent |
+**Deadline: Nov 15, 23:59 EST.** Times are EST, as in `docs/`. The original 48-hour schedule is replaced; this version was written on Nov 10.
+
+**Done (Nov 8–10).** Details are in `docs/DECISIONS.md`.
+
+| Date | Work |
+|---|---|
+| Nov 8 | Phase 0 environment; Phase 1 go/no-go (calculus go; book no-go, so the MUSE target-model protocol was adopted) |
+| Nov 9 | Phase 2 data frozen; target and retain-only fine-tunes plus the anchored refit (v3); Phase 3 J-lens; LLM-written attack sets; Phase 4 sweeps (46 configs); Phase 6 audit; J-space injection (attack 14); Phase 5 localization and masked runs |
+| Nov 9–10 | Robustness follow-ups: localized-mask seeds, SAM-NPO, UNDO (last box finished Nov 10, 04:29) |
+
+**Remaining (Nov 10 evening to Nov 15).**
+
+| Date | A: data and evaluation | B: unlearning | C: interpretability and agent |
 |---|---|---|---|
-| 0–2 | Environment | Environment | Environment |
-| 2–4 | Baselines: calculus, book | Baselines: utility | `model.py`, generate utilities |
-| 4–10 | Generators, grader, CuratorKIT, splits | Batches, `run_safetune.py` on toy data | J-lens fit and validation, readout, injection |
-| 10–18 | Audit harness, attacks 1–9 | B0, B1 sweeps (calculus) | Localizer, surgery tools |
-| 18–22 | Attacks 10–14, utility | B1 sweeps (book), winners | Guard, agent loop, dry runs |
-| 22–30 | Audit B0/B1 checkpoints | Masked + random mask, ladder | L1 runs, J-lens per checkpoint |
-| 30–36 | Audit masked/ladder/agent checkpoints | Seeds, H5 analysis | L2 runs, certificates |
-| 36–46 | Leaderboard, plots | Hypothesis verdicts | Demo |
-| 46–48 | Freeze, slides | Freeze, slides | Freeze, slides |
+| Nov 10–11 | Full Phase-6 audit of the new candidates (book all-weight NPO-KL lr 3e-5, calculus SAM-NPO ρ 0.01) | Depth ladder 4.7: forget = arithmetic, algebra (the calculus rung is the existing calculus NPO); stronger relearning attack on the book models that resist (all-weight NPO, UNDO, localized NPO) | Surgery tools and guard (7.1, 7.2) |
+| Nov 12 | Audit the ladder checkpoints; 3×5 ladder matrix | Masked NPO on agent-chosen masks (L1) | Agent loop and dry runs (7.3); L1 runs for both targets (7.4) |
+| Nov 13 | Audit L1/L2 patches, relearning first (7.6) | Extra seeds for any new headline result | L2 runs, budgets 10/25/50 per target (7.5); certificates (7.7) |
+| Nov 14 | Leaderboard, plots (8.1) | Hypothesis verdicts H1–H6 (8.2) | Demo (8.4) |
+| Nov 15 | `REPORT.md` (8.3), reproducibility (8.5); freeze at 12:00 | Freeze at 12:00, slides | Freeze at 12:00, slides |
 
 ---
 

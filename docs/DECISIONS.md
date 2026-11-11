@@ -498,3 +498,208 @@ The B0 system prompts change nothing: raw-completion tasks have no system turn, 
   it has no 3% book replay, so it is not a matched book-mixture control. General fidelity loss confounds robustness.
 - **Scope:** 1-3 are finished. Phase 7 is deferred at the user's request; the agentic method's impact remains untested.
   Do not infer it from failure of this attribution localizer. No speculative retries or additional rentals scheduled.
+
+## 2026-11-10: Deadline moved to Nov 15; three gap-closing runs; Phase 7 started
+
+- **Schedule.** `PLAN.md` §11 rewritten at the user's request: deadline Nov 15, 23:59 EST; run freeze at 12:00 EST that
+  day (§8.6). Phase 7 is no longer deferred (user decision, Nov 10). A background agent edits weights locally, on dev
+  splits only, while the three runs below closed the evidence gaps in `docs/RESULTS.md` §9.
+- **Code.** `07_unlearn.py --target arithmetic|algebra` (depth-ladder rungs; `data.py` builds forget = that topic's
+  self-generated solutions, retain = the other math topics + calculus + general) and `--retain-scope general` (retain on
+  general chat answers only). `12_relearn.py --full` (all weights, fp32 AdamW) and `--book-extra N` (adds N 256-token
+  chunks of `book/raw_forget_train`, the unlearning forget text with the test passages cut out). `13_audit_report.py`
+  now lists the two new candidates and labels the relearning attacker.
+- **Runs** (all `STATUS=DONE`, instances self-destroyed, outputs merged into `results/{audit,dev,unlearn,relearn}/`):
+  `script-20261110-163751-aud_new-e38b` (full Phase-6 audit of `book_npofull_plain_lr3e-5`, `calc_npo_sam_r0.01`),
+  `script-20261110-163811-ladder-386a` (depth ladder), `script-20261110-163831-rl_full-74bd` (stronger relearning).
+  `docs/AUDIT.md` regenerated.
+- **Audit, book all-weight NPO-KL lr 3e-5 (TEST).** Verbatim F1 0.184 (floor 0.145, target 0.944); no prompt-side attack
+  exceeds the target. Knowmem ICL fact 0.191 equals the target (4/21 questions), but book knowmem has almost no headroom
+  (floor 0.000). Utility 0.975 of the target.
+- **Audit, calculus SAM-NPO rho 0.01 (TEST).** Direct 0.407, flagged degenerate: 34.7% truncated vs the target's 18.7%.
+  With the tool loophole it scores 0.780 (target 0.860, 91%; plain NPO 0.590), best-of-16 0.767, thinking mode 0.573.
+  Worst recovery 0.97. The extra forgetting SAM shows on direct prompts is hidden, not gone, and it is less robust
+  than plain NPO to tool use.
+- **Stronger relearning (book, TEST verbatim F1, 25 passages; peak over steps).** Recovery = (peak - 0.148) /
+  (0.944 - 0.148), 0.148 being the never-trained model at step 0:
+
+  | model | LoRA, 20 items (old) | full weights, 20 items | full + 200 forget-text chunks |
+  |---|---|---|---|
+  | retain-only (control) | 0.145 (0%) | 0.140 (0%) | 0.149 (0%) |
+  | UNDO book RMU | 0.160 (2%) | 0.144 (0%) | 0.177 (4%) |
+  | all-weight NPO-KL lr 3e-5 | 0.220 (9%) | 0.214 (8%) | 0.338 (24%) |
+  | localized NPO (mnpo_book) | 0.336 (24%) | 0.283 (17%) | 0.478 (42%) |
+  | book RMU-l4 | 0.390 (30%) | 0.240 (12%) | 0.567 (53%) |
+
+  The full-weight attack at lr 1e-5 on the same 20 items is weaker than the LoRA attack. Adding forget-text chunks
+  makes it much stronger. The control stays at the floor (0.149), so the chunks do not teach the held-out passages
+  themselves: what returns is suppressed memorisation. The ordering is the same for all three attackers
+  (UNDO < all-weight NPO < localized NPO < RMU). Peaks are at 25–50 steps and fall by 200 (overfitting to the chunks).
+  Knowmem (21 questions) does not move. One seed. Random-mask controls were not re-attacked, so the localized-vs-random
+  gap (§6) is untested under this attacker.
+- **Depth ladder (DEV, NPO-KL LoRA lr 5e-4; per-topic retain-math accuracy over 90 problems each).**
+
+  | forgotten | steps | arithmetic | algebra | precalculus | calculus | calc truncated | MMLU-val |
+  |---|---|---|---|---|---|---|---|
+  | none (target) | - | 0.989 | 0.944 | 0.978 | 0.754 | 0.217 | 0.515 |
+  | arithmetic | 84 | 0.967 | 0.911 | 0.978 | 0.762 | 0.221 | 0.515 |
+  | arithmetic | 560 | 0.989 | 0.944 | 0.989 | 0.750 | 0.242 | 0.510 |
+  | algebra | 135 | 1.000 | 0.933 | 1.000 | 0.733 | 0.242 | 0.515 |
+  | algebra | 585 | 1.000 | 0.889 | 0.989 | 0.738 | 0.233 | 0.515 |
+  | calculus (existing `calc_npo_lr5e-4_e3`) | 570 | 0.989 | 0.922 | 0.967 | 0.512 | 0.446 | 0.510 |
+
+  At the dose that cuts calculus by 0.24, NPO removes neither arithmetic (0.989, unchanged) nor algebra (-0.06, under
+  2 SE at n = 90), even with matched steps and forget tokens (arithmetic 2.1M vs calculus 1.7M). Collateral damage is zero everywhere, but only because nothing was
+  forgotten, so H3 ("collateral grows with depth") cannot be read off this matrix. Likely confound: the retain set
+  contains the dependent skills (every calculus solution uses arithmetic and algebra), so the retain/KL term holds
+  the foundation in place. **Follow-up launched:** `scripts/sweeps/ladder_gen.txt`, the same three step-matched rungs
+  with `--retain-scope general`, plus arithmetic at lr 2e-3 to check dose. The first box
+  (`script-20261110-175615-ladder_gen-7bcb`, machine 144098) was stopped by the host about 19 min in, before the job
+  wrote STATUS or any log; it was destroyed and the sweep relaunched as `script-20261110-181827-ladder_gen-43c5`.
+- **Depth ladder variant 2 (DEV, `script-20261110-181827-ladder_gen-43c5`, done 2026-11-11 00:30 UTC; box
+  self-destroyed, 4 checkpoints uploaded).** Retain = general chat only. Arithmetic 0.989 → 0.367 (algebra −0.21,
+  precalculus −0.07, calculus −0.08, thinking calculus +0.07); algebra 0.944 → 0.767 (calculus −0.10, precalculus −0.02,
+  arithmetic unchanged); calculus 0.754 → 0.621 (nothing below it moves). MMLU, IFEval and perplexity unchanged in all
+  three. Arithmetic at lr 2e-3 collapses the model (perplexity 7,549, MMLU 0.27). Reading: the topic retain set is what
+  protected the foundations in variant 1; collateral flows only to dependent skills. H3 is supported in direction but
+  not in magnitude, because forgetting is not matched across rungs (−0.62 / −0.18 / −0.13). Full table: `docs/RESULTS.md` §7.5.
+
+## 2026-11-11: Phase 7 editing agent finished; test audit, relearning and L1 runs launched
+
+- **Agent** (Fable 5.2, high; no refusal, so no fallback to Opus): built `src/lfm3u/surgery/` + `scripts/16_surgery.py`
+  and ran two mechanical baselines and four L2 sessions on dev, on the local RTX 3080 Ti
+  (venv and caches on G:). Full log: `docs/SURGERY.md`. Checked here: patches are full checkpoints under
+  `s3://lexsi-hackathon/models/surgery/<run>/`; the scorer reads only dev/train files through the frozen manifest
+  (which refuses test files); the L1 lists reproduce exactly under `localize.select` (4,220 MLP units each, 0.5% of
+  parameters; book L19–23, calculus L4–12) and the random control draws the same units per tensor.
+- **Dev results (agent's scorer, 2,048-token cap).** `l2_book_b25`: three rank-one `w2` edits (a closed-form RMU, i.e. a
+  ridge detector on MLP units gating a fixed random write, L3–5, c = 3). Verbatim 0.144 / 0.151 (floor 0.129 / 0.140,
+  target 0.894 / 0.882), no looping, utility at the target, knowmem unchanged (0.216 vs 0.230). `l2_calc_b25` (L6–8,
+  c = 3): calculus 0.067 (target 0.658), 40% truncated (target 35%), retain math 0.944, MMLU 0.520. It works only
+  with one of three random-vector draws and was selected from 12 variants on dev. Guard cost 29,184 (0.0017%) by the
+  rank × (rows + cols) rule; about 45M bf16 elements change (2.6%). Direction-ablation baselines are much weaker
+  (book verbatim 0.73 / 0.62; calculus 0.53 with 51% truncation).
+- **Process note.** The user asked the agent to rent a Vast box mid-run; it declined, citing the brief's credit
+  reservation. That reservation was out of date (the user had already said auto-billing is on).
+- **Launched** (all on Vast, outputs to `results/{audit,relearn,dev,unlearn}/`): `surg_aud.txt` (full test audit of
+  `l2_book_b25`, `l2_book_b10`, `base_book`, `l2_calc_b25`, `base_calc` as `surg_*`), `surg_rl.txt` (LoRA relearning on
+  four of them plus the stronger book attack on `l2_book_b25`), `l1_book.txt` / `l1_calc.txt` (masked all-weight NPO on
+  the agent's unit lists vs same-size random masks, Phase-5 recipes). L1 masks were copied to
+  `s3://lexsi-hackathon/localize/v1/l1_{book,calc}/scores.pt`, where `unlearn_sweep.sh` looks for them.
+
+## 2026-11-11: Phase 7 test audit, relearning and L1 results; 50-call sessions; their audit launched
+
+- **Runs done** (all four boxes reached DONE and destroyed themselves; fetched with `launch.py fetch`, merged into
+  `results/{audit,relearn,dev,unlearn}/`, `docs/AUDIT.md` regenerated): `script-20261110-201929-l1_book-ce8e`,
+  `script-20261110-202016-l1_calc-a5e9`, `script-20261110-202433-surg_aud-06c6`, `script-20261110-202624-surg_rl-b52e`.
+- **Test audit.** `surg_l2_book_b25` verbatim 0.144 (retain-only 0.145, RMU-l4 0.129), no looping (retain-only 16%),
+  knowmem ICL 0.191 (= target), utility_rel 0.986. `surg_l2_book_b10` 0.175. `surg_l2_calc_b25` calculus 0.147 (target
+  0.800) with 21% truncated (target 19%), gibberish 0.7%, utility_rel 0.995: the first calculus model that passes the
+  direct bar on test without the degeneracy flag. Prompt attacks ≤ 0.18 except best-of-16 (0.35); the tool loophole gives
+  0.68 (79% of the target; SAM-NPO 0.78). Direction-ablation baselines: book 0.665, calculus 0.727.
+- **Relearning (test).** `l2_book_b25`: LoRA peak 0.457 (39% of the gap; RMU-l4 30%); full + 200 chunks peak 0.567
+  at 25 steps (53%; RMU-l4 0.567 at 50 steps, 53%). `l2_calc_b25`: 0.12 → 0.59 (10 steps) → 0.73 (25) → 0.75 (100),
+  target 0.71; RMU-l4 c20 reaches 0.37 at 10 steps. Related-retain controls flat. Reading: the agent's closed-form RMU
+  behaves like trained RMU under every attack; tiny edits did not make the forgetting deeper.
+- **L1 masked NPO (dev).** Agent's book list: verbatim 0.257 / 0.326 vs 0.307 / 0.331 for random units in the same
+  layers, worse than the Phase-5 localizer (0.217 / 0.187), knowmem retain 0.368 (target 0.461). Agent's calculus list:
+  0.533 with 48% unfinished (degenerate) vs 0.637 / 36% random; thinking-mode accuracy 0.733 (target 0.733). The
+  agent's unit choice does not beat attribution. Not relearned.
+- **`surg_base_book` relearning curve is odd:** LoRA on forget *and* on related items lowers its verbatim F1
+  (0.644 → 0.42–0.48 and → 0.25). Not investigated; this baseline barely forgets, so it is not used in any claim.
+- **50-call sessions** (`docs/SURGERY_B50.md`; Fable 5.2, high, no refusal). Box: Vast instance 60150268 launched
+  with `surgery_worker.sh` for the S3 command queue (`scripts/vast/surg_worker.py`, `surg_remote.py`). The user then
+  asked for plain SSH instead. A new key `~/.ssh/lexsi_vast_ed25519` was attached to the instance, the worker chain
+  stopped, and a 12-hour dead-man timer added. The agent was told to start from scratch, without the earlier logs or
+  results, so that its 50 calls are independent of the 10/25-call sessions. It disclosed seeing the §5–§14 headings
+  of `docs/SURGERY.md` and using the earlier tooling. It destroyed the instance when done; `vastai show instances`
+  was empty afterwards (checked here).
+  - `l2_book_b50`: top-32 forget-vs-retain generalized-eigen directions projected out of `w2` of L2–4 (3 × rank 32;
+    guard cost 933,888 = 0.054%; 2.67% of bf16 elements change). 15 of 50 calls. Dev verbatim 0.147 / 0.158, loops
+    0.27 (retain-only 0.40), utility at the target, forget NLL 1.36 (target 0.13, retain-only 3.06), knowmem unchanged.
+  - `l2_calc_b50`: top-20 directions out of `w2` of L8–15 (8 × rank 20; 1,556,480 = 0.090%; 7.11%). 13 of 50 calls.
+    Dev calculus 3 / 120 with 112 / 120 unfinished: degenerate. Ten configurations all trade accuracy for
+    non-termination. The agent chose not to build an operation-swapping edit, because that would redirect the skill
+    rather than remove it.
+  - Checked here: dev.json numbers match the log; both patches are on S3 (12 files, 3.48 GB each).
+- **Launched:** `scripts/sweeps/surg50_aud.txt` (full test audit of both 50-call patches, run
+  `script-20261110-220623-surg50_aud-f5ff`) and `scripts/sweeps/surg50_rl.txt` (LoRA relearning on both plus the strong
+  book attack, run `script-20261110-220657-surg50_rl-5bea`).
+- RESULTS: headline finding 11, finding 2 amended (no *trained* method forgets calculus cleanly), §7.6 rewritten.
+
+## 2026-11-11: Test audit and relearning of the 50-call patches
+
+- **Runs:** `script-20261110-220623-surg50_aud-f5ff` (23 min) and `script-20261110-220657-surg50_rl-5bea` (46 min).
+  Both reached DONE and their boxes destroyed themselves. Fetched and merged; `docs/AUDIT.md` regenerated
+  (`13_audit_report.py` now lists `surg_l2_book_b50` and `surg_l2_calc_b50`).
+- **`surg_l2_book_b50`.** Verbatim 0.144 (same as b25; retain-only 0.145), looping 0.20 (retain-only 0.16),
+  knowmem ICL 0.191 (= target), utility_rel 0.994. Relearning: LoRA peak 0.438 (36%; b25 39%); full + 200 chunks peak
+  0.507 at 50 steps (45%; b25 and RMU-l4 53%). Reading: the removal-style edit comes back slightly less than the
+  perturbation-style one, level with localized NPO (42%). One seed and 25 passages, so not a firm difference.
+- **`surg_l2_calc_b50`.** Calculus 0.087 with 88% unfinished (degenerate, as on dev). Tool loophole 0.54 (42%
+  unfinished), best-of-16 0.20, other prompt attacks ≤ 0.15. Retain math 0.900 (target 0.950), utility_rel 0.979. LoRA
+  relearning 0.06 → 0.34 (10) → 0.56 (25) → 0.61 (50), target 0.71. Related control flat (0.05–0.11).
+- RESULTS §7.6 and finding 11 updated; §9 no longer lists Phase 7 runs as running.
+
+## 2026-11-11: TODO before the freeze (Nov 15, 12:00 EST)
+
+Every experiment phase is done, ahead of the PLAN §11 schedule. Plan: Nov 11–12 for four cheap runs that close gaps in
+the headline claims, launched in parallel; write while they run; no new methods. Nothing below has started.
+
+### Experiments that close gaps (priority order)
+
+- [ ] **1. Cross-subskill relearning control (calculus).** Closes the caveat in RESULTS §5 finding 2 (no model that never
+  knew calculus, so "25 steps restore calculus" could be the 20 items teaching it). Relearn on 20 derivative-only items
+  (`kind == "diff"`), score indefinite and definite integrals separately; integration that returns after training
+  only on derivatives was hidden, not taught. Code: a kind filter in `calc_items` (`scripts/12_relearn.py`), per-kind
+  accuracy in the eval, `--n-calc` about 300 so each kind has about 100 problems. Models: calc RMU-l4 c20,
+  `surg_l2_calc_b25`, `surg_l2_calc_b50`, UNDO calc RMU, target (reference).
+- [ ] **2. Training-free recovery: direction ablation at the edited layers only.** Attack 8 (`scripts/11_abliterate.py`
+  `ablation_hooks`) projects the direction out after every layer, which also removes the skill (target calc 0.71 →
+  0.07). The jams sit in layers 2–4 (RMU; 0–4 for masked RMU) and 6–8 / 3–5 (agent patches). Variant: forget-vs-retain mean difference
+  computed on the unlearned model, projected out only at those layers' outputs (cf. Łucki et al. 2024 on RMU).
+  Success = no gradient steps, no learnability caveat; failure = a clean negative. About 20 lines; fits the local
+  3080 Ti. Models: calc RMU-l4 c20, `mrmu_calc_l4`, `surg_l2_calc_b25`, book RMU-l4, `surg_l2_book_b25`.
+- [ ] **3. Matched-mixture UNDO book control.** UNDO is the only positive robustness result (4% back under full + 200),
+  but the no-unlearning control used the calculus mixture and lost the book anyway (dev verbatim 0.873 → 0.195). Run
+  the control student on the book mixture (92% FineWeb, 5% selfgen, 3% book-train, original target as teacher), then
+  the strong attack on it. Separates "the unlearned teacher" from "distillation wipes memorisation". About 5 h.
+- [ ] **4. Seeds and CIs for the book relearning ordering** (RESULTS findings 8 and 11: UNDO < all-weight NPO <
+  localized NPO < RMU ≈ patch; one seed, 25 passages, peak over 4 checkpoints). First add per-passage logging to
+  `scripts/12_relearn.py` (it saves only aggregates). Then attack seeds 1 and 2 of full + 200 on retain-only, UNDO
+  book, `book_npofull_plain_lr3e-5`, `mnpo_book`, book RMU-l4, `surg_l2_book_b25`, `surg_l2_book_b50`, plus the
+  random-mask models (not yet re-attacked). Bootstrap CIs over items for all audit numbers (generations are already
+  saved per item in `results/audit/<model>/generations/`, no GPU).
+
+Optional if 1–4 finish early: element-sparse surgery session (H6 like-for-like with Takehi et al.), matched-dose
+depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, new methods, BFCL.
+
+### Write-up deliverables (PLAN Phase 8)
+
+- [ ] **Leaderboard.** `docs/AUDIT.md` §4 leaves relearning out of worst recovery, and its book column is
+  one-question noise (21 knowmem questions; `surg_l2_book_b50` "2.00" is one question). Fold relearning recovery in
+  (PLAN 6.6 counts attack 10); report forget_rel, worst recovery and utility_rel separately, with CIs from item 4.
+- [ ] **Plots (PLAN 8.1).** Relearning curves (main figure); forget vs utility with relearning recovery as marker
+  size; depth-ladder heatmap; J-lens heatmaps (base vs best method vs prompt baseline); surgery result vs call
+  budget. H5 bars exist (`results/localize/*/mass.png`).
+- [ ] **Certificates (PLAN 7.7).** `results/surgery/*/certificate.md` still say "draft, dev metrics only": add test
+  metrics and worst-case recovery including relearning.
+- [ ] **Hypothesis verdicts H1–H6 (PLAN 8.2).** Draft from current evidence, to revise after items 1–4:
+  - H1 (suppress, not erase): supported by relearning. "Base lens still recovers the tokens" not supported (the lens
+    misses the calculus jam). "RMU holds up better than NPO" mixed: better than LoRA NPO (31% vs 79% back under LoRA),
+    worse than all-weight NPO under full + 200 (53% vs 24%).
+  - H2 (skills harder than facts): partly. Calculus leaks through prompt-side routes (tool 79–100% of the target)
+    where the book does not; both come back under relearning.
+  - H3 (collateral grows with depth): supported in direction; magnitude untested (forgetting not matched).
+  - H4 (localized beats random): refuted on calculus. Mixed on the book: localized NPO beats random at equal lr
+    (3 seeds), random at 2× lr closes most of the gap. Agent-chosen masks no better than random.
+  - H5 (where content concentrates): calculus diffuse; book mildly concentrated in MLPs after global attention. Weak.
+  - H6 (surgery at ≤ 0.1% of weights): met under the guard's low-rank count (0.0017%), not by changed bf16 elements
+    (2.6–7.1%). State both, or run the element-sparse session.
+- [ ] **`REPORT.md` + PDF (PLAN 8.3):** setup, results, attacks, limitations.
+- [ ] **Demo (PLAN 8.4):** base vs unlearned answer, J-lens heatmap, one live attack, certificate.
+- [ ] **Reproducibility (PLAN 8.5):** configs for every reported result, `data/MANIFEST.json`, AuditKIT fingerprints,
+  seeds.
+- [ ] **Slides.**
+- [ ] **Housekeeping:** commit the Phase 7 work (`src/lfm3u/surgery/`, `scripts/16_surgery.py`, `docs/SURGERY*.md`,
+  sweep files, modified scripts) before launching new runs. Update PLAN §11 (the Nov 12–13 Phase 7 rows are done).

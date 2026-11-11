@@ -151,7 +151,8 @@ def main() -> None:
     ap.add_argument("--name", required=True)
     ap.add_argument("--model", required=True, help="reference target checkpoint (local dir)")
     ap.add_argument("--source", default=None, help="where --model came from (s3 uri), recorded in the metadata")
-    ap.add_argument("--target", choices=("book", "calculus"), required=True)
+    ap.add_argument("--target", choices=("book", "calculus", "arithmetic", "algebra"), required=True,
+                    help="arithmetic/algebra: depth-ladder controls (PLAN 4.7)")
     ap.add_argument("--method", choices=METHODS, required=True)
     ap.add_argument("--data", default="data")
     ap.add_argument("--selfgen", default="work/selfgen.jsonl")
@@ -167,6 +168,8 @@ def main() -> None:
     ap.add_argument("--alpha", type=float, default=100.0, help="rmu retain weight")
     ap.add_argument("--n-forget", type=int, default=0, help="forget items (0 = all)")
     ap.add_argument("--n-retain", type=int, default=0, help="retain items (0 = all)")
+    ap.add_argument("--retain-scope", choices=("all", "general"), default="all",
+                    help="general = retain only on general chat answers (depth-ladder variant without the topic anchor)")
     ap.add_argument("--batch-tokens", type=int, default=4096)
     ap.add_argument("--max-len", type=int, default=4096)
     ap.add_argument("--no-grad-ckpt", action="store_true")
@@ -197,7 +200,7 @@ def main() -> None:
     tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
     forget, retain, stats = build(a.target, Path(a.data), tok, selfgen=Path(a.selfgen) if Path(a.selfgen).is_file() else None,
                                   n_forget=a.n_forget, n_retain=a.n_retain, budget=a.batch_tokens, max_len=a.max_len,
-                                  seed=a.seed)
+                                  seed=a.seed, retain_scope=a.retain_scope)
     log(f"{a.name}: {a.method} on {a.target}; data {json.dumps(stats)}")
     model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(device)
     model.config.use_cache = False

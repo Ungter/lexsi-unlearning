@@ -9,6 +9,10 @@ The question: does a few-item fine-tune bring the forgotten capability back on t
 erased), and faster than it teaches a model that never had it (the retain-only reference)?
 Deviation from PLAN: lr 2e-4 instead of 2e-5 (2e-5 barely moves a rank-16 LoRA in 100 steps). Eval is HF greedy with the
 adapter active (calc: 100 test problems, cap 3,072 tokens; book: verbmem 25, knowmem ICL 21/20).
+Stronger attacker (follow-up to the LoRA-only robustness results):
+  --full          fine-tune every weight (fp32 master weights, bf16 autocast, AdamW) instead of a rank-16 LoRA
+  --book-extra N  book forget curve: add N chunks of book/raw_forget_train (the unlearning forget text, held-out
+                  verbmem passages already cut out) to the 20 forget-dev items
 Writes <out>/relearn.json.
 """
 from __future__ import annotations
@@ -59,7 +63,7 @@ def calc_items(tok, selfgen: Path, data: Path, kind: str) -> list[dict]:
     return [{"ids": r["prompt_ids"] + r["completion_ids"], "start": len(r["prompt_ids"])} for r in picked]
 
 
-def book_items(tok, data: Path, kind: str) -> list[dict]:
+def book_items(tok, data: Path, kind: str, extra: int = 0) -> list[dict]:
     bos = tok.bos_token_id
     enc = lambda t: tok(t, add_special_tokens=False)["input_ids"]  # noqa: E731
     if kind == "forget":
@@ -72,6 +76,10 @@ def book_items(tok, data: Path, kind: str) -> list[dict]:
         for r in qa[:10]:
             p = chat_ids(tok, muse.KNOW_CHAT.format(q=r["question"]))
             items.append({"ids": p + enc(r["answer"]) + [im_end], "start": len(p)})
+        if extra:
+            chunks = read_jsonl(data / "book/raw_forget_train.jsonl")
+            seeded("relearn", "fx").shuffle(chunks)
+            items += [{"ids": [bos, *r["input_ids"][:256]], "start": 1} for r in chunks[:extra]]
         return items
     chunks = read_jsonl(data / "book/raw_retain1_dev.jsonl", allow_test=True)
     seeded("relearn", "rc").shuffle(chunks)
@@ -90,9 +98,16 @@ def train_curve(a, tok, kind: str, items: list[dict], tasks) -> dict:
     from transformers import AutoModelForCausalLM
 
     dev = device()
-    base = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(dev)
+    # full fine-tune: fp32 master weights (bf16 AdamW updates at lr ~1e-5 mostly round away); LoRA: bf16 base
+    base = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True,
+                                                dtype=torch.float32 if a.full else torch.bfloat16).to(dev)
     base.config.use_cache = True
-    model = get_peft_model(base, LoraConfig(r=16, lora_alpha=32, lora_dropout=0.0, target_modules=LORA_TARGETS, task_type="CAUSAL_LM"))
+    if a.full:
+        model = base
+        for p in model.parameters():
+            p.requires_grad_(True)
+    else:
+        model = get_peft_model(base, LoraConfig(r=16, lora_alpha=32, lora_dropout=0.0, target_modules=LORA_TARGETS, task_type="CAUSAL_LM"))
     params = [p for p in model.parameters() if p.requires_grad]
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.0)
     steps = sorted({int(s) for s in a.steps.split(",")})
@@ -157,6 +172,8 @@ def main() -> None:
     ap.add_argument("--max-new", type=int, default=3072)
     ap.add_argument("--n-calc", type=int, default=100)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--full", action="store_true", help="full-parameter fine-tune instead of rank-16 LoRA")
+    ap.add_argument("--book-extra", type=int, default=0, help="book forget curve: add N raw_forget_train chunks")
     a = ap.parse_args()
 
     from transformers import AutoTokenizer
@@ -171,7 +188,8 @@ def main() -> None:
         tasks = {"rows": rows[:a.n_calc], "retain": read_jsonl(Path(a.attack_data) / "_inputs/math_retain_test.jsonl", allow_test=True)[:40]}
     report = {"name": a.name, "model": a.model, "domain": a.domain, "args": vars(a), "curves": {}}
     for kind in a.kinds.split(","):
-        items = (calc_items(tok, Path(a.selfgen_dev), Path(a.data), kind) if a.domain == "calc" else book_items(tok, Path(a.data), kind))
+        items = (calc_items(tok, Path(a.selfgen_dev), Path(a.data), kind) if a.domain == "calc"
+                 else book_items(tok, Path(a.data), kind, a.book_extra))
         log(f"{a.name} {kind}: {len(items)} training items")
         report["curves"][kind] = train_curve(a, tok, kind, items, tasks)
         (out / "relearn.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
