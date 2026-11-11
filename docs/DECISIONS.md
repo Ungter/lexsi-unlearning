@@ -660,6 +660,8 @@ the headline claims, launched in parallel; write while they run; no new methods.
   computed on the unlearned model, projected out only at those layers' outputs (cf. Łucki et al. 2024 on RMU).
   Success = no gradient steps, no learnability caveat; failure = a clean negative. About 20 lines; fits the local
   3080 Ti. Models: calc RMU-l4 c20, `mrmu_calc_l4`, `surg_l2_calc_b25`, book RMU-l4, `surg_l2_book_b25`.
+  Design note (Bosco & Srinivasan 2026, `docs/RELATED_WORK.md` §10): on non-transformers the direction worked when read
+  and removed at each layer's write site (sublayer output before the residual add); try that as well as the residual.
 - [ ] **3. Matched-mixture UNDO book control.** UNDO is the only positive robustness result (4% back under full + 200),
   but the no-unlearning control used the calculus mixture and lost the book anyway (dev verbatim 0.873 → 0.195). Run
   the control student on the book mixture (92% FineWeb, 5% selfgen, 3% book-train, original target as teacher), then
@@ -671,7 +673,15 @@ the headline claims, launched in parallel; write while they run; no new methods.
   random-mask models (not yet re-attacked). Bootstrap CIs over items for all audit numbers (generations are already
   saved per item in `results/audit/<model>/generations/`, no GPU).
 
-Optional if 1–4 finish early: element-sparse surgery session (H6 like-for-like with Takehi et al.), matched-dose
+- [ ] **5. Stronger related-data attack on the calculus jam.** Our related-retain control (LoRA, 20 other-math items,
+  100 steps) never restores calc RMU c20, but Łucki et al. 2024 (10 retain-set samples), Doshi & Stickland 2024
+  (OpenWebText, 100–1,000 steps) and Wang et al. 2025 (downstream fine-tuning incl. math) restore RMU/NPO
+  (`docs/RELATED_WORK.md` §2). Before claiming a contrast, attack with full-weight fine-tuning for about 500–1,000 steps
+  on (a) other-math selfgen solutions and (b) generic web text (FineWeb). `scripts/12_relearn.py` already has `--full`;
+  needs a longer step schedule and a FineWeb item source. Models: calc RMU-l4 c20, `surg_l2_calc_b25`, target
+  (reference). If calculus comes back, the "related data does nothing" line goes and we agree with prior work.
+
+Optional if 1–5 finish early: element-sparse surgery session (H6 like-for-like with Takehi et al.), matched-dose
 depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, new methods, BFCL.
 
 ### Write-up deliverables (PLAN Phase 8)
@@ -697,9 +707,71 @@ depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, ne
   - H6 (surgery at ≤ 0.1% of weights): met under the guard's low-rank count (0.0017%), not by changed bf16 elements
     (2.6–7.1%). State both, or run the element-sparse session.
 - [ ] **`REPORT.md` + PDF (PLAN 8.3):** setup, results, attacks, limitations.
+- [ ] **Related work (`docs/RELATED_WORK.md`, folded into `REPORT.md`).** No transformer replication: too much differs
+  between model families to attribute any difference to architecture. Instead cite published transformer results,
+  comparing the direction of an effect only (never their numbers in our tables, never "LFM3 is more robust than
+  transformers"); where we differ (e.g. related-data fine-tuning does not restore our RMU jam, Łucki et al. 2024
+  restore RMU with unrelated data), list the setup differences first and leave architecture as an open question. Every
+  reference checked by web search (title, authors, venue, and that it says what we cite it for). Check the novelty
+  claim ("almost all unlearning studies use pure transformers") against work on SSM / hybrid / gated-conv models.
 - [ ] **Demo (PLAN 8.4):** base vs unlearned answer, J-lens heatmap, one live attack, certificate.
 - [ ] **Reproducibility (PLAN 8.5):** configs for every reported result, `data/MANIFEST.json`, AuditKIT fingerprints,
   seeds.
 - [ ] **Slides.**
 - [ ] **Housekeeping:** commit the Phase 7 work (`src/lfm3u/surgery/`, `scripts/16_surgery.py`, `docs/SURGERY*.md`,
   sweep files, modified scripts) before launching new runs. Update PLAN §11 (the Nov 12–13 Phase 7 rows are done).
+
+## 2026-11-11: Paper experiments (after Nov 15)
+
+For an arXiv/workshop paper, separate from the hackathon TODOs above. TODOs 1–5 make the current claims defensible;
+these aim at what is new after the literature search (`docs/RELATED_WORK.md`): one-way prerequisite damage, recovering a
+skill through code, and the J-lens miss on the calculus jam. Proposed framing: "skill unlearning is suppression", with
+calculus as the spine, agent surgery as a section, the book as the fact-unlearning comparison, and the hybrid
+architecture as the setting. Nothing below has started. If only three are done: P1, P3, P4 (each tests a specific
+2025–2026 paper where our data already hints at a different answer).
+
+- [ ] **P1. Depth ladder → dependency test (lead result).** PreUnlearn (Su et al. 2026) says collateral damage
+  follows semantic distance, which is symmetric; our ladder (RESULTS §7.5) suggests it follows dependency, which runs
+  one way.
+  - Full forget-X × measure-Y matrix at matched forgetting (a dose sweep per rung so each X drops by the same amount),
+    at least NPO and RMU, 3 seeds, test split, larger per-topic n than the 90 used so far.
+  - Pairs that separate similarity from dependency: derivatives ↔ integrals (dependent and similar), similar-looking
+    but independent pairs, dependent but different-looking pairs.
+  - Predict collateral from (a) semantic distance (PreUnlearn-style embedding distance) and (b) overlap of localizer
+    attribution between skills (`src/lfm3u/unlearn/localize.py`). Claim if (b) predicts and (a) does not.
+  - Cost: about 1 day of engineering; the largest GPU item (about 100 short runs, roughly $50).
+- [ ] **P2. Second skill: linear algebra.** "Skills" is currently one skill. Linear algebra has a ladder (arithmetic →
+  matrix multiplication → determinants and inverses → eigenvalues), sympy grading and a tool route (numpy). Reuse the
+  calculus pipeline (`src/lfm3u/data/math_gen.py`, selfgen, unlearning, audit, relearning). Feeds P1 and P3.
+  Cost: 1–2 days of engineering, small GPU.
+- [ ] **P3. Tool route: "knowing what" vs "knowing how".** With `sympy.diff(...)` the library does the calculus; the
+  model only has to recognize the operation. The tool loophole (79–100% of the target) suggests unlearning removes the
+  procedure and keeps the knowledge of what to compute.
+  - Word problems with a hidden calculus step, solved with and without a tool; score setting up the problem (the
+    correct expression and operation) separately from carrying it out.
+  - Then put sympy-calculus code in the forget set and test whether the tool route closes.
+  - ATU (Chen et al. 2026) covers tools that look up facts; this is the skill version with a mechanism.
+  - Cost: 1–2 days of engineering, small GPU.
+- [ ] **P4. Can any activation-based audit catch a jam?** Calculus RMU's layers 5–23 are identical to the target's: the
+  skill is in the weights but never reaches the activations, so activation-based audits should miss it.
+  - Run Song et al. 2026's J-Access (reimplement from the paper), linear probes (PLAN 6.5, never run) and UDS-style
+    activation patching (Lee et al. 2026) on all ~20 audited checkpoints; correlate each with relearning recovery.
+  - Expected claim: jam-type methods (RMU, masked RMU, agent patches, UNDO calculus) are false negatives for every
+    activation-based audit; only weight-level attacks catch them. Tests "J-Access predicts recovery" directly.
+  - Cost: 1–2 days of engineering, small GPU.
+- [ ] **P5. Agent surgery with a relearning check in its toolkit.** Add a dev-split relearning probe to the agent's
+  tools (`src/lfm3u/surgery/tools.py`) so it can aim for edits that survive relearning; evaluate on the strong attacks
+  it never saw (full + 200, cross-subskill). Still failing = a strong negative; succeeding = a method. Also: repeated
+  sessions per budget (agent-to-agent variance), a second editor model, and an element-sparse budget for a like-for-like
+  comparison with Takehi et al. Cost: 2–3 days of agent sessions plus API.
+- [ ] **P6. Give the architecture angle content.**
+  - Component-restricted relearning: the LoRA attack on conv blocks only, attention only, or MLPs only (change the
+    LoRA target lists in `scripts/12_relearn.py`); same restriction for unlearning. Which component type holds the
+    suppression and which undoes it? Not done for unlearning; Borobia et al. 2026 found attention-only LoRA best in
+    other hybrids. Cost: hours.
+  - Calculus pipeline on 1–2 more models, a transformer (Qwen3-1.7B) and a different hybrid (Qwen3.5), to show P1, P3
+    and P4 hold beyond LFM3, not to attribute differences to architecture. Cost: 1–2 days of porting (LoRA targets,
+    RMU `param_substring`, thinking toggle).
+
+Do not invest further in the book target: its knowledge half has no gap left to remove (target fact 0.19 vs base
+0.05, n = 21) and its verbatim result repeats Hu et al. 2025. Keep it as the fact-unlearning comparison.
