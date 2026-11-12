@@ -1,0 +1,4 @@
+# DECISIONS TODO 2 (training-free recovery): direction ablation at the edited layers only (scripts/17_local_abl.py).
+# PRIMARY variant, declared before results: resid at every edited layer, prompt directions. Target lines are the
+# control (same layers, directions computed on the target). --ref adds the oracle variant + diagnostics.
+17_local_abl.py la_surg_l2_calc_b25 s3://lexsi-hackathon/models/surgery/l2_calc_b25 --domain calc --layers 6,7,8 --sites resid,ffn,w2 --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A

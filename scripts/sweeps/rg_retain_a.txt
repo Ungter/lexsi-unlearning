@@ -1,0 +1,11 @@
+# ERASURE_RESEARCH experiment 1, part b: the strong book relearning attack (all weights + 200 forget-text chunks, steps
+# 0/25/50/100/200) over seeds and schedules, after Qi et al. 2024 (arXiv 2412.07097), who broke TAR/RepNoise by changing
+# seed, schedule and learning rate. UNDO-book must stay with the retain-only floor in every configuration.
+12_relearn.py rg_retain_book_lr1e-5_constant_s0 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 0
+12_relearn.py rg_retain_book_lr1e-5_cosine_s0 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 0 --schedule cosine --warmup 20
+12_relearn.py rg_retain_book_lr1e-5_constant_s1 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1
+12_relearn.py rg_retain_book_lr1e-5_cosine_s1 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1 --schedule cosine --warmup 20
+12_relearn.py rg_retain_book_lr1e-5_constant_s2 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2
+12_relearn.py rg_retain_book_lr1e-5_cosine_s2 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2 --schedule cosine --warmup 20
+12_relearn.py rg_retain_book_lr3e-5_constant_s0 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 3e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 0
+12_relearn.py rg_retain_book_lr3e-5_cosine_s0 s3://lexsi-hackathon/models/script-20261109-044316/lfm3-muse-retain-A --domain book --kinds forget --full --lr 3e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 0 --schedule cosine --warmup 20

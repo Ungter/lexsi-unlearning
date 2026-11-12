@@ -183,7 +183,10 @@ def parse_math(s: str | None):
     e = _mv_parse(s) if latexy else _plain_parse(s)
     if e is None:
         e = _plain_parse(s) if latexy else _mv_parse(s)
-    return _norm(e) if e is not None else None
+    try:  # pathological (deeply nested) answers from degenerate models can overflow sympy's recursion
+        return _norm(e) if e is not None else None
+    except (RecursionError, Exception):  # noqa: BLE001
+        return None
 
 
 # ---------------------------------------------------------------- equivalence

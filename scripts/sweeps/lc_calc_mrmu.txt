@@ -1,0 +1,4 @@
+# Rerun of masked RMU (calculus) after the grader fix (src/lfm3u/grade.py: a deeply nested answer overflowed sympy's
+# recursion and killed the first run after 3 variants), plus the public-base reference at all three sites (masked RMU
+# also edits conv/o_proj columns, i.e. the operator write).
+17_local_abl.py la_base_mrmu_calc_l4 s3://lexsi-hackathon/models/script-20261109-180410-m3-ae41/mrmu_calc_l4_c20 --domain calc --layers 0,1,2,3,4 --sites resid,w2,op --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only

@@ -1,0 +1,7 @@
+# Training-free attack with the PUBLIC base model as reference (follow-up to TODO 2): the oracle variant (attacked minus
+# target) recovered trained RMU where the forget-vs-contrast direction did not; the target is private, but the base model
+# LiquidAI/LFM3-1.7B is open. Direction per layer = mean_attacked(forget prompts) - mean_base(forget prompts), projected
+# out at the edited layers. la_base_target_* = the same attack on the unlearned-from target (control: what removing the
+# fine-tuning shift costs). Only none + the two base-reference variants (resid, w2) are run.
+17_local_abl.py la_base_undo_calc_rmu_l2-4 s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --layers 2,3,4 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only
+17_local_abl.py la_base_calc_npo_l2-4 s3://lexsi-hackathon/models/script-20261109-112451-r2_npo-4501/calc_npo_lr5e-4_e3 --domain calc --layers 2,3,4 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only

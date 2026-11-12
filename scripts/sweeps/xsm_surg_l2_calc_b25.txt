@@ -1,0 +1,7 @@
+# DECISIONS TODO 1 (cross-subskill relearning control). LoRA relearning (r16, lr 2e-4, batch 4, steps 0/10/25/50/100)
+# scored per kind on 81 diff + 81 integral + 81 defint calculus TEST problems (27 per level, --calc-per-kind 81).
+#   xs_*   forget_diff: 20 derivative-only self-generated dev solutions. Integration that returns after training only on
+#          derivatives was hidden, not taught.
+#   xsm_*  forget: the usual 20 mixed calculus solutions, same per-kind eval (comparison).
+#   xs1_*  forget_diff, second seed (batch order + LoRA init).
+12_relearn.py xsm_surg_l2_calc_b25 s3://lexsi-hackathon/models/surgery/l2_calc_b25 --domain calc --kinds forget --calc-per-kind 81 --gen-bs 125

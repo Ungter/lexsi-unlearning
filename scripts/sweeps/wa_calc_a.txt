@@ -1,0 +1,4 @@
+# ERASURE_RESEARCH experiment 1 (falsify UNDO harder), part a: weight-level attacks without training (simulated INT8 /
+# INT4 round-to-nearest, Gaussian weight noise), scripts/20_weight_attacks.py. References: RMU, NPO, target, retain-only.
+20_weight_attacks.py wa_undo_calc_rmu s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc
+20_weight_attacks.py wa_calc_rmu_l4_c20 s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 --domain calc

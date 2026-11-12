@@ -124,14 +124,22 @@ def ablation_hooks(model, r):
     return [m.register_forward_hook(hook) for m in mods]
 
 
-def eval_calc(model, tok, rows, retain, max_new):
-    outs = hf_generate(model, tok, [chat_ids(tok, r["instruction"]) for r in rows], max_new)
-    recs = [grade_item(r, o["text"]) | {"truncated": o["truncated"]} for r, o in zip(rows, outs)]
-    outs2 = hf_generate(model, tok, [chat_ids(tok, r["instruction"]) for r in retain], 2048)
+def eval_calc(model, tok, rows, retain, max_new, bs: int = 100):
+    outs = hf_generate(model, tok, [chat_ids(tok, r["instruction"]) for r in rows], max_new, bs)
+    recs = [grade_item(r, o["text"]) | {"truncated": o["truncated"], "kind": r.get("kind")} for r, o in zip(rows, outs)]
+    outs2 = hf_generate(model, tok, [chat_ids(tok, r["instruction"]) for r in retain], 2048, bs)
     recs2 = [grade_item(r, o["text"]) for r, o in zip(retain, outs2)]
-    return {"calc_acc": mean(r["correct"] for r in recs), "calc_truncated": mean(r["truncated"] for r in recs),
-            "calc_gibberish": mean(r["gibberish"] for r in recs), "retain_math_acc": mean(r["correct"] for r in recs2),
-            "retain_math_gibberish": mean(r["gibberish"] for r in recs2)}
+    res = {"calc_acc": mean(r["correct"] for r in recs), "calc_truncated": mean(r["truncated"] for r in recs),
+           "calc_gibberish": mean(r["gibberish"] for r in recs), "retain_math_acc": mean(r["correct"] for r in recs2),
+           "retain_math_gibberish": mean(r["gibberish"] for r in recs2)}
+    kinds = sorted({r["kind"] for r in recs if r["kind"]})
+    if len(kinds) > 1:  # per-kind breakdown (diff / integral / defint); per-item bits for bootstrap CIs
+        for k in kinds:
+            sub = [r for r in recs if r["kind"] == k]
+            res |= {f"calc_acc_{k}": mean(r["correct"] for r in sub), f"calc_truncated_{k}": mean(r["truncated"] for r in sub),
+                    f"n_{k}": len(sub)}
+    res["calc_bits"] = "".join("1" if r["correct"] else "0" for r in recs)
+    return res
 
 
 def eval_book(model, tok, data: Path, atk: Path):
@@ -139,7 +147,8 @@ def eval_book(model, tok, data: Path, atk: Path):
     bos = tok.bos_token_id
     outs = hf_generate(model, tok, [[bos, *tok(r["prompt"], add_special_tokens=False)["input_ids"]] for r in verb], 128)
     f1 = [grade.rouge_l(o["text"], r["target"])["rougeL_f1"] for r, o in zip(verb, outs)]
-    res = {"verbmem_f1": mean(f1), "verbmem_gibberish": mean(grade.is_gibberish(o["text"]) for o in outs)}
+    res = {"verbmem_f1": mean(f1), "verbmem_gibberish": mean(grade.is_gibberish(o["text"]) for o in outs),
+           "verbmem_f1_items": [round(x, 3) for x in f1]}
     for split, key in (("forget", "forget"), ("retain", "retain")):
         qa = read_jsonl(data / f"book/knowmem_{split}_qa_test.jsonl", allow_test=True)
         prefix = muse.icl_prefix(read_jsonl(data / f"book/knowmem_{split}_qa_icl_dev.jsonl", allow_test=True))

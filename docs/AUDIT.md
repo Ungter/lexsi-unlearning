@@ -97,108 +97,505 @@ Book recovery = closure toward the target relative to the retain-only floor on t
 | target_book | book | verbmem_f1 | 0.944 | 0.543 | 0.732 | 0.485 | 0.250 -> 0.200 |
 | target_calc | calc | calc_acc | 0.710 | 0.070 | 0.380 | 0.420 | 0.900 -> 0.850 |
 
+## 5b. Training-free recovery: direction ablation at the edited layers only (scripts/17_local_abl.py)
+
+Direction = forget-minus-contrast mean on the attacked model, projected out only at the layers the method edited. Primary variant (declared before results): resid = residual stream after every edited layer. ffn = MLP write after the sandwich norm; w2 = MLP output before that norm (the norm rescales what is left); clamp = remove only the excess over the contrast mean; sol = directions from teacher-forced target solutions; base = attacked-minus-PUBLIC-base mean on forget prompts (la_base_* rows, a realistic attack); oracle = attacked-minus-target mean (uses the private reference, not an attack); random = random direction. la_target_* rows are the control: the same procedure on the unlearned-from model. Calculus: accuracy on the attack-8 100 test problems (truncated share in brackets); book: verbatim F1. p = exact McNemar, primary vs none.
+
+| model | layers | none | resid | resid (last) | ffn | w2 | w2 clamp | op | op clamp | resid sol | w2 sol | resid base | w2 base | resid oracle | w2 oracle | resid random | p (primary) | retain (none -> primary) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| la_base_book_npofull_plain_lr3e-5_l2-4 | 2,3,4 | 0.185 | - | - | - | - | - | - | - | - | - | 0.168 | 0.149 | - | - | - | - | 0.200 -> 0.300 |
+| la_base_book_rmu_l4 | 2,3,4 | 0.131 | - | - | - | - | - | - | - | - | - | 0.159 | 0.134 | - | - | - | - | 0.350 -> 0.300 |
+| la_base_calc_npo_l2-4 | 2,3,4 | 0.500 (0.50) | - | - | - | - | - | - | - | - | - | 0.470 (0.56) | 0.320 (0.56) | - | - | - | 0.690 | 0.900 -> 0.900 |
+| la_base_calc_rmu_l4_c20 | 2,3,4 | 0.000 (0.97) | - | - | - | - | - | - | - | - | - | 0.510 (0.36) | 0.010 (0.95) | - | - | - | 0.000 | 0.900 -> 0.875 |
+| la_base_calc_rmu_l4_c20_s1 | 2,3,4 | 0.000 (0.96) | - | - | - | - | - | - | - | - | - | 0.432 (0.43) | 0.008 (0.97) | - | - | - | 0.000 | 0.900 -> 0.825 |
+| la_base_mrmu_book_l4 | 0,1,2,3,4 | 0.086 | - | - | - | - | - | - | - | - | - | 0.180 | 0.081 | - | - | - | - | 0.200 -> 0.250 |
+| la_base_mrmu_calc_l4 | 0,1,2,3,4 | 0.000 (1.00) | - | - | - | - | - | - | - | - | - | 0.190 (0.48) | 0.000 (1.00) | - | - | - | 0.000 | 0.925 -> 0.850 |
+| la_base_surg_l2_book_b25 | 3,4,5 | 0.145 | - | - | - | - | - | - | - | - | - | 0.247 | 0.193 | - | - | - | - | 0.250 -> 0.300 |
+| la_base_surg_l2_book_b50 | 2,3,4 | 0.145 | - | - | - | - | - | - | - | - | - | 0.159 | 0.156 | - | - | - | - | 0.200 -> 0.250 |
+| la_base_surg_l2_calc_b25 | 6,7,8 | 0.120 (0.27) | - | - | - | - | - | - | - | - | - | 0.510 (0.38) | 0.650 (0.33) | - | - | - | 0.000 | 0.850 -> 0.850 |
+| la_base_surg_l2_calc_b25_s1 | 6,7,8 | 0.115 (0.24) | - | - | - | - | - | - | - | - | - | 0.383 (0.47) | 0.605 (0.39) | - | - | - | 0.000 | 0.850 -> 0.850 |
+| la_base_surg_l2_calc_b50 | 8,9,10,11,12,13,14,15 | 0.060 (0.91) | - | - | - | - | - | - | - | - | - | 0.010 (0.85) | 0.000 (0.98) | - | - | - | 0.062 | 0.875 -> 0.350 |
+| la_base_target_book_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.944 | - | - | - | - | - | - | - | - | - | 0.136 | 0.094 | - | - | - | - | 0.250 -> 0.050 |
+| la_base_target_book_l2-4 | 2,3,4 | 0.944 | - | - | - | - | - | - | - | - | - | 0.402 | 0.335 | - | - | - | - | 0.250 -> 0.400 |
+| la_base_target_book_l3-5 | 3,4,5 | 0.944 | - | - | - | - | - | - | - | - | - | 0.631 | 0.216 | - | - | - | - | 0.250 -> 0.400 |
+| la_base_target_calc_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.710 (0.27) | - | - | - | - | - | - | - | - | - | 0.400 (0.63) | 0.000 (1.00) | - | - | - | 0.000 | 0.900 -> 0.550 |
+| la_base_target_calc_l2-4 | 2,3,4 | 0.710 (0.27) | - | - | - | - | - | - | - | - | - | 0.560 (0.47) | 0.520 (0.47) | - | - | - | 0.004 | 0.900 -> 0.800 |
+| la_base_target_calc_l2-4_s1 | 2,3,4 | 0.794 (0.20) | - | - | - | - | - | - | - | - | - | 0.564 (0.53) | 0.444 (0.55) | - | - | - | 0.000 | 0.900 -> 0.800 |
+| la_base_target_calc_l6-8 | 6,7,8 | 0.710 (0.27) | - | - | - | - | - | - | - | - | - | 0.690 (0.28) | 0.710 (0.24) | - | - | - | 0.804 | 0.900 -> 0.875 |
+| la_base_target_calc_l6-8_s1 | 6,7,8 | 0.774 (0.21) | - | - | - | - | - | - | - | - | - | 0.708 (0.29) | 0.675 (0.33) | - | - | - | 0.017 | 0.900 -> 0.875 |
+| la_base_undo_book_rmu_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.127 | - | - | - | - | - | - | - | - | - | 0.111 | 0.104 | - | - | - | - | 0.300 -> 0.000 |
+| la_base_undo_book_rmu_l2-4 | 2,3,4 | 0.127 | - | - | - | - | - | - | - | - | - | 0.108 | 0.126 | - | - | - | - | 0.300 -> 0.250 |
+| la_base_undo_calc_rmu_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.000 (0.98) | - | - | - | - | - | - | - | - | - | 0.000 (1.00) | 0.000 (1.00) | - | - | - | 1.000 | 0.800 -> 0.000 |
+| la_base_undo_calc_rmu_l2-4 | 2,3,4 | 0.000 (0.98) | - | - | - | - | - | - | - | - | - | 0.000 (0.90) | 0.000 (1.00) | - | - | - | 1.000 | 0.800 -> 0.825 |
+| la_book_npofull_plain_lr3e-5_l2-4 | 2,3,4 | 0.185 | 0.163 | 0.163 | - | 0.147 | - | - | - | - | - | - | - | 0.166 | 0.170 | 0.173 | - | 0.200 -> 0.100 |
+| la_book_npofull_plain_lr3e-5_l8-15 | 8,9,10,11,12,13,14,15 | 0.185 | 0.172 | 0.171 | - | 0.170 | - | - | - | - | - | - | - | 0.180 | 0.175 | 0.174 | - | 0.200 -> 0.250 |
+| la_book_rmu_l4 | 2,3,4 | 0.131 | 0.158 | 0.152 | 0.145 | 0.139 | 0.157 | - | - | - | - | - | - | 0.219 | 0.151 | 0.134 | - | 0.350 -> 0.450 |
+| la_calc_npo_l2-4 | 2,3,4 | 0.500 (0.50) | 0.450 (0.58) | 0.460 (0.51) | - | 0.310 (0.72) | - | - | - | 0.450 (0.55) | 0.390 (0.55) | - | - | 0.420 (0.52) | 0.440 (0.54) | 0.510 (0.48) | 0.332 | 0.900 -> 0.875 |
+| la_calc_npo_l8-15 | 8,9,10,11,12,13,14,15 | 0.500 (0.50) | 0.370 (0.59) | 0.490 (0.43) | - | 0.350 (0.63) | - | - | - | 0.400 (0.59) | 0.360 (0.73) | - | - | 0.460 (0.48) | 0.420 (0.53) | 0.490 (0.51) | 0.007 | 0.900 -> 0.700 |
+| la_calc_rmu_l4_c20 | 2,3,4 | 0.000 (0.97) | 0.010 (0.43) | 0.000 (0.66) | 0.020 (0.95) | 0.000 (0.90) | 0.010 (0.67) | - | - | 0.060 (0.42) | 0.000 (1.00) | - | - | 0.500 (0.36) | 0.000 (0.99) | 0.000 (0.97) | 1.000 | 0.900 -> 0.875 |
+| la_mrmu_book_l4 | 0,1,2,3,4 | 0.086 | 0.183 | 0.135 | 0.125 | 0.110 | 0.159 | 0.164 | 0.249 | - | - | - | - | 0.214 | 0.128 | 0.079 | - | 0.200 -> 0.300 |
+| la_mrmu_calc_l4 | 0,1,2,3,4 | 0.000 (1.00) | 0.030 (0.75) | 0.000 (1.00) | 0.000 (1.00) | 0.000 (1.00) | 0.000 (0.84) | 0.000 (0.98) | 0.140 (0.62) | 0.080 (0.73) | 0.000 (1.00) | - | - | 0.190 (0.55) | 0.000 (1.00) | 0.000 (1.00) | 0.250 | 0.925 -> 0.825 |
+| la_oracle_undo_book_rmu_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.127 | - | - | - | - | - | - | - | - | - | - | - | 0.111 | 0.126 | - | - | 0.300 -> 0.050 |
+| la_oracle_undo_calc_rmu_all | 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 | 0.000 (0.98) | - | - | - | - | - | - | - | - | - | - | - | 0.000 (0.98) | 0.000 (1.00) | - | 1.000 | 0.800 -> 0.000 |
+| la_surg_l2_book_b25 | 3,4,5 | 0.145 | 0.204 | 0.155 | 0.254 | 0.199 | 0.289 | - | - | - | - | - | - | 0.188 | 0.236 | 0.141 | - | 0.250 -> 0.300 |
+| la_surg_l2_book_b50 | 2,3,4 | 0.145 | 0.136 | 0.133 | 0.128 | 0.156 | 0.267 | - | - | - | - | - | - | 0.146 | 0.150 | 0.152 | - | 0.200 -> 0.150 |
+| la_surg_l2_calc_b25 | 6,7,8 | 0.120 (0.27) | 0.190 (0.55) | 0.260 (0.49) | 0.550 (0.38) | 0.600 (0.36) | 0.610 (0.36) | - | - | 0.300 (0.57) | 0.580 (0.37) | - | - | 0.530 (0.40) | 0.620 (0.39) | 0.090 (0.30) | 0.265 | 0.850 -> 0.875 |
+| la_surg_l2_calc_b50 | 8,9,10,11,12,13,14,15 | 0.060 (0.91) | 0.000 (0.99) | 0.100 (0.84) | 0.050 (0.82) | 0.010 (0.77) | 0.330 (0.60) | - | - | 0.010 (0.92) | 0.000 (0.94) | - | - | 0.000 (0.88) | 0.000 (0.95) | 0.070 (0.91) | 0.031 | 0.875 -> 0.125 |
+| la_target_book_l0-4 | 0,1,2,3,4 | 0.944 | 0.498 | 0.928 | 0.591 | 0.148 | 0.184 | 0.791 | 0.356 | - | - | - | - | - | - | 0.944 | - | 0.250 -> 0.200 |
+| la_target_book_l2-4 | 2,3,4 | 0.944 | 0.812 | 0.928 | 0.860 | 0.348 | 0.612 | - | - | - | - | - | - | - | - | 0.944 | - | 0.250 -> 0.200 |
+| la_target_book_l3-5 | 3,4,5 | 0.944 | 0.860 | 0.870 | 0.863 | 0.267 | 0.627 | - | - | - | - | - | - | - | - | 0.944 | - | 0.250 -> 0.150 |
+| la_target_calc_l0-4 | 0,1,2,3,4 | 0.710 (0.27) | 0.660 (0.32) | 0.700 (0.28) | 0.700 (0.32) | 0.000 (0.82) | 0.530 (0.45) | 0.650 (0.33) | 0.600 (0.41) | 0.490 (0.47) | 0.010 (0.68) | - | - | - | - | 0.730 (0.25) | 0.359 | 0.900 -> 0.875 |
+| la_target_calc_l2-4 | 2,3,4 | 0.710 (0.27) | 0.690 (0.30) | 0.700 (0.28) | 0.740 (0.28) | 0.580 (0.45) | 0.660 (0.34) | - | - | 0.630 (0.35) | 0.670 (0.31) | - | - | - | - | 0.780 (0.22) | 0.815 | 0.900 -> 0.825 |
+| la_target_calc_l6-8 | 6,7,8 | 0.710 (0.27) | 0.660 (0.36) | 0.680 (0.33) | 0.770 (0.23) | 0.740 (0.26) | 0.730 (0.23) | - | - | 0.620 (0.36) | 0.720 (0.25) | - | - | - | - | 0.730 (0.22) | 0.267 | 0.900 -> 0.900 |
+| la_target_calc_l8-15 | 8,9,10,11,12,13,14,15 | 0.710 (0.27) | 0.580 (0.37) | 0.730 (0.24) | 0.660 (0.30) | 0.500 (0.46) | 0.690 (0.31) | - | - | 0.620 (0.36) | 0.740 (0.24) | - | - | - | - | 0.740 (0.22) | 0.011 | 0.900 -> 0.800 |
+| la_undo_book_rmu_l2-4 | 2,3,4 | 0.127 | 0.133 | 0.141 | - | 0.124 | - | - | - | - | - | - | - | 0.142 | 0.133 | 0.130 | - | 0.300 -> 0.300 |
+| la_undo_book_rmu_l8-15 | 8,9,10,11,12,13,14,15 | 0.127 | 0.121 | 0.133 | - | 0.134 | - | - | - | - | - | - | - | 0.134 | 0.122 | 0.125 | - | 0.300 -> 0.350 |
+| la_undo_calc_rmu_l2-4 | 2,3,4 | 0.000 (0.98) | 0.000 (0.52) | 0.000 (0.56) | - | 0.000 (0.98) | - | - | - | 0.000 (0.56) | 0.000 (0.99) | - | - | 0.000 (0.93) | 0.000 (1.00) | 0.000 (1.00) | 1.000 | 0.800 -> 0.900 |
+| la_undo_calc_rmu_l8-15 | 8,9,10,11,12,13,14,15 | 0.000 (0.98) | 0.000 (0.98) | 0.000 (0.99) | - | 0.000 (0.99) | - | - | - | 0.000 (0.98) | 0.000 (0.98) | - | - | 0.000 (0.90) | 0.000 (0.99) | 0.000 (1.00) | 1.000 | 0.800 -> 0.850 |
+
+Diagnostics (attacked models): cosine of the attack direction with the oracle direction (attacked minus target, forget prompts) and with the target's own forget-contrast direction; for each edited w2, |W2 - W2_target| / |W2_target|, top-two singular value ratio (rank-1 patch = large) and |cos| of the top left singular vector with the w2 attack direction.
+
+| model | site@layer | oracle cos | target-direction cos | sol oracle rel | dW2 rel | s1/s2 | dW2 top cos |
+|---|---|---|---|---|---|---|---|
+| la_book_npofull_plain_lr3e-5_l2-4 | resid@2 | 0.022 | 0.970 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l2-4 | resid@3 | 0.202 | 0.968 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l2-4 | resid@4 | 0.203 | 0.948 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l2-4 | w2@2 | 0.064 | 0.942 | - | 0.0096 | 1.5 | 0.100 |
+| la_book_npofull_plain_lr3e-5_l2-4 | w2@3 | -0.124 | 0.979 | - | 0.0096 | 1.2 | 0.076 |
+| la_book_npofull_plain_lr3e-5_l2-4 | w2@4 | 0.134 | 0.940 | - | 0.0097 | 1.2 | 0.063 |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@8 | 0.383 | 0.888 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@9 | 0.421 | 0.890 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@10 | 0.293 | 0.892 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@11 | 0.339 | 0.882 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@12 | 0.414 | 0.874 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@13 | 0.420 | 0.884 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@14 | 0.458 | 0.877 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | resid@15 | 0.441 | 0.892 | - | - | - | - |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@8 | 0.428 | 0.845 | - | 0.0099 | 1.1 | 0.069 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@9 | 0.449 | 0.884 | - | 0.0099 | 1.1 | 0.068 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@10 | 0.207 | 0.862 | - | 0.0099 | 1.2 | 0.131 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@11 | 0.325 | 0.842 | - | 0.0099 | 1.2 | 0.094 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@12 | 0.368 | 0.794 | - | 0.0099 | 1.1 | 0.050 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@13 | 0.486 | 0.848 | - | 0.0099 | 1.2 | 0.107 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@14 | 0.386 | 0.850 | - | 0.0098 | 1.2 | 0.065 |
+| la_book_npofull_plain_lr3e-5_l8-15 | w2@15 | 0.520 | 0.799 | - | 0.0097 | 1.4 | 0.044 |
+| la_book_rmu_l4 | resid@2 | 0.738 | 0.739 | - | - | - | - |
+| la_book_rmu_l4 | resid@3 | 0.949 | 0.403 | - | - | - | - |
+| la_book_rmu_l4 | resid@4 | 0.994 | 0.202 | - | - | - | - |
+| la_book_rmu_l4 | w2@2 | 0.864 | 0.445 | - | 0.0675 | 2.9 | 0.912 |
+| la_book_rmu_l4 | w2@3 | 0.971 | 0.340 | - | 0.0724 | 2.3 | 0.889 |
+| la_book_rmu_l4 | w2@4 | 0.971 | 0.310 | - | 0.0713 | 4.5 | 0.902 |
+| la_calc_npo_l2-4 | resid@2 | 0.227 | 0.903 | 0.084 | - | - | - |
+| la_calc_npo_l2-4 | resid@3 | 0.150 | 0.928 | 0.087 | - | - | - |
+| la_calc_npo_l2-4 | resid@4 | 0.096 | 0.882 | 0.112 | - | - | - |
+| la_calc_npo_l2-4 | w2@2 | 0.332 | 0.886 | 0.037 | 0.0177 | 1.2 | 0.039 |
+| la_calc_npo_l2-4 | w2@3 | -0.027 | 0.944 | 0.039 | 0.0180 | 1.9 | 0.061 |
+| la_calc_npo_l2-4 | w2@4 | 0.125 | 0.819 | 0.060 | 0.0161 | 1.6 | 0.085 |
+| la_calc_npo_l8-15 | resid@8 | 0.314 | 0.890 | 0.149 | - | - | - |
+| la_calc_npo_l8-15 | resid@9 | 0.428 | 0.910 | 0.161 | - | - | - |
+| la_calc_npo_l8-15 | resid@10 | 0.363 | 0.895 | 0.134 | - | - | - |
+| la_calc_npo_l8-15 | resid@11 | 0.369 | 0.909 | 0.156 | - | - | - |
+| la_calc_npo_l8-15 | resid@12 | 0.362 | 0.909 | 0.109 | - | - | - |
+| la_calc_npo_l8-15 | resid@13 | 0.416 | 0.928 | 0.154 | - | - | - |
+| la_calc_npo_l8-15 | resid@14 | 0.294 | 0.898 | 0.207 | - | - | - |
+| la_calc_npo_l8-15 | resid@15 | 0.273 | 0.909 | 0.246 | - | - | - |
+| la_calc_npo_l8-15 | w2@8 | 0.300 | 0.861 | 0.086 | 0.0171 | 1.7 | 0.031 |
+| la_calc_npo_l8-15 | w2@9 | 0.204 | 0.954 | 0.073 | 0.0165 | 1.1 | 0.010 |
+| la_calc_npo_l8-15 | w2@10 | 0.330 | 0.875 | 0.100 | 0.0234 | 1.4 | 0.004 |
+| la_calc_npo_l8-15 | w2@11 | 0.210 | 0.888 | 0.070 | 0.0224 | 1.3 | 0.037 |
+| la_calc_npo_l8-15 | w2@12 | 0.228 | 0.883 | 0.092 | 0.0229 | 1.3 | 0.033 |
+| la_calc_npo_l8-15 | w2@13 | 0.226 | 0.896 | 0.075 | 0.0245 | 2.1 | 0.016 |
+| la_calc_npo_l8-15 | w2@14 | 0.254 | 0.887 | 0.100 | 0.0233 | 1.6 | 0.050 |
+| la_calc_npo_l8-15 | w2@15 | 0.245 | 0.895 | 0.074 | 0.0188 | 1.5 | 0.028 |
+| la_calc_rmu_l4_c20 | resid@2 | 0.658 | 0.755 | 0.466 | - | - | - |
+| la_calc_rmu_l4_c20 | resid@3 | 0.919 | 0.285 | 0.951 | - | - | - |
+| la_calc_rmu_l4_c20 | resid@4 | 0.992 | 0.055 | 1.018 | - | - | - |
+| la_calc_rmu_l4_c20 | w2@2 | 0.730 | 0.579 | 0.337 | 0.0581 | 2.6 | 0.787 |
+| la_calc_rmu_l4_c20 | w2@3 | 0.952 | -0.008 | 1.073 | 0.0630 | 2.1 | 0.888 |
+| la_calc_rmu_l4_c20 | w2@4 | 0.975 | -0.028 | 1.395 | 0.0676 | 4.2 | 0.902 |
+| la_mrmu_book_l4 | resid@0 | 0.138 | 0.932 | - | - | - | - |
+| la_mrmu_book_l4 | resid@1 | 0.571 | 0.774 | - | - | - | - |
+| la_mrmu_book_l4 | resid@2 | 0.978 | 0.463 | - | - | - | - |
+| la_mrmu_book_l4 | resid@3 | 0.997 | 0.229 | - | - | - | - |
+| la_mrmu_book_l4 | resid@4 | 0.998 | 0.148 | - | - | - | - |
+| la_mrmu_book_l4 | w2@0 | 0.173 | 0.950 | - | 0.0443 | 1.7 | 0.267 |
+| la_mrmu_book_l4 | w2@1 | -0.116 | 0.843 | - | 0.0587 | 1.7 | 0.409 |
+| la_mrmu_book_l4 | w2@2 | 0.991 | 0.292 | - | 0.0818 | 3.2 | 0.836 |
+| la_mrmu_book_l4 | w2@3 | 0.975 | 0.461 | - | 0.0916 | 3.4 | 0.738 |
+| la_mrmu_book_l4 | w2@4 | 0.984 | 0.503 | - | 0.0907 | 3.7 | 0.675 |
+| la_mrmu_calc_l4 | resid@0 | 0.292 | 0.967 | 0.206 | - | - | - |
+| la_mrmu_calc_l4 | resid@1 | 0.588 | 0.674 | 0.443 | - | - | - |
+| la_mrmu_calc_l4 | resid@2 | 0.988 | 0.148 | 1.004 | - | - | - |
+| la_mrmu_calc_l4 | resid@3 | 0.998 | 0.076 | 1.006 | - | - | - |
+| la_mrmu_calc_l4 | resid@4 | 0.998 | 0.014 | 1.010 | - | - | - |
+| la_mrmu_calc_l4 | w2@0 | 0.395 | 0.991 | 0.043 | 0.0462 | 1.2 | 0.106 |
+| la_mrmu_calc_l4 | w2@1 | 0.529 | 0.831 | 0.221 | 0.0531 | 1.3 | 0.347 |
+| la_mrmu_calc_l4 | w2@2 | 0.985 | -0.045 | 1.489 | 0.0864 | 3.7 | 0.735 |
+| la_mrmu_calc_l4 | w2@3 | 0.988 | -0.204 | 1.680 | 0.0892 | 2.6 | 0.704 |
+| la_mrmu_calc_l4 | w2@4 | 0.983 | -0.093 | 1.915 | 0.0967 | 3.2 | 0.621 |
+| la_oracle_undo_book_rmu_all | resid@0 | 0.254 | 0.950 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@1 | 0.199 | 0.936 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@2 | 0.481 | 0.700 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@3 | 0.902 | 0.385 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@4 | 0.891 | 0.180 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@5 | 0.950 | 0.100 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@6 | 0.825 | 0.151 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@7 | 0.869 | 0.138 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@8 | 0.721 | 0.202 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@9 | 0.839 | 0.210 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@10 | 0.555 | 0.209 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@11 | 0.772 | 0.248 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@12 | 0.385 | 0.259 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@13 | 0.608 | 0.297 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@14 | 0.562 | 0.391 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@15 | 0.622 | 0.417 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@16 | 0.410 | 0.448 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@17 | 0.499 | 0.455 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@18 | 0.237 | 0.465 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@19 | 0.270 | 0.476 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@20 | 0.197 | 0.446 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@21 | 0.481 | 0.435 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@22 | 0.639 | 0.408 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | resid@23 | 0.486 | 0.433 | - | - | - | - |
+| la_oracle_undo_book_rmu_all | w2@0 | 0.195 | 0.950 | - | 0.2539 | 2.4 | 0.204 |
+| la_oracle_undo_book_rmu_all | w2@1 | 0.517 | 0.983 | - | 0.2527 | 1.4 | 0.902 |
+| la_oracle_undo_book_rmu_all | w2@2 | 0.507 | 0.487 | - | 0.2574 | 1.3 | 0.828 |
+| la_oracle_undo_book_rmu_all | w2@3 | 0.566 | 0.018 | - | 0.2591 | 1.4 | 0.892 |
+| la_oracle_undo_book_rmu_all | w2@4 | 0.415 | -0.111 | - | 0.2590 | 1.7 | 0.828 |
+| la_oracle_undo_book_rmu_all | w2@5 | 0.512 | 0.245 | - | 0.2528 | 2.2 | 0.247 |
+| la_oracle_undo_book_rmu_all | w2@6 | 0.283 | 0.033 | - | 0.2527 | 1.6 | 0.049 |
+| la_oracle_undo_book_rmu_all | w2@7 | 0.444 | 0.169 | - | 0.2530 | 1.7 | 0.231 |
+| la_oracle_undo_book_rmu_all | w2@8 | 0.406 | 0.145 | - | 0.2527 | 1.3 | 0.077 |
+| la_oracle_undo_book_rmu_all | w2@9 | 0.606 | 0.242 | - | 0.2531 | 1.2 | 0.287 |
+| la_oracle_undo_book_rmu_all | w2@10 | 0.674 | 0.272 | - | 0.2525 | 1.1 | 0.214 |
+| la_oracle_undo_book_rmu_all | w2@11 | 0.752 | 0.370 | - | 0.2526 | 1.2 | 0.585 |
+| la_oracle_undo_book_rmu_all | w2@12 | 0.657 | 0.303 | - | 0.2523 | 1.1 | 0.472 |
+| la_oracle_undo_book_rmu_all | w2@13 | 0.752 | 0.412 | - | 0.2524 | 1.5 | 0.573 |
+| la_oracle_undo_book_rmu_all | w2@14 | 0.420 | 0.300 | - | 0.2518 | 1.2 | 0.180 |
+| la_oracle_undo_book_rmu_all | w2@15 | 0.190 | 0.336 | - | 0.2523 | 1.6 | 0.019 |
+| la_oracle_undo_book_rmu_all | w2@16 | -0.495 | 0.373 | - | 0.2534 | 1.6 | 0.587 |
+| la_oracle_undo_book_rmu_all | w2@17 | -0.706 | 0.260 | - | 0.2536 | 1.8 | 0.778 |
+| la_oracle_undo_book_rmu_all | w2@18 | -0.710 | 0.315 | - | 0.2537 | 1.5 | 0.806 |
+| la_oracle_undo_book_rmu_all | w2@19 | -0.589 | 0.402 | - | 0.2535 | 1.9 | 0.815 |
+| la_oracle_undo_book_rmu_all | w2@20 | -0.663 | 0.272 | - | 0.2540 | 1.7 | 0.875 |
+| la_oracle_undo_book_rmu_all | w2@21 | -0.242 | -0.079 | - | 0.2545 | 1.6 | 0.886 |
+| la_oracle_undo_book_rmu_all | w2@22 | -0.115 | -0.078 | - | 0.2541 | 1.7 | 0.756 |
+| la_oracle_undo_book_rmu_all | w2@23 | 0.581 | 0.411 | - | 0.2531 | 1.8 | 0.709 |
+| la_oracle_undo_calc_rmu_all | resid@0 | -0.263 | 0.960 | 0.977 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@1 | 0.036 | 0.957 | 0.702 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@2 | 0.250 | 0.722 | 1.269 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@3 | 0.777 | 0.376 | 0.912 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@4 | 0.895 | 0.146 | 1.020 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@5 | 0.894 | 0.184 | 0.912 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@6 | 0.791 | 0.173 | 0.945 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@7 | 0.816 | 0.177 | 0.848 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@8 | 0.685 | 0.190 | 1.177 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@9 | 0.852 | 0.321 | 1.073 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@10 | 0.587 | 0.199 | 1.443 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@11 | 0.812 | 0.255 | 1.274 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@12 | 0.541 | 0.230 | 1.930 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@13 | 0.824 | 0.391 | 1.213 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@14 | 0.683 | 0.229 | 1.590 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@15 | 0.734 | 0.251 | 1.544 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@16 | 0.607 | 0.269 | 1.755 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@17 | 0.669 | 0.266 | 1.480 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@18 | 0.511 | 0.254 | 1.772 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@19 | 0.501 | 0.253 | 1.413 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@20 | 0.404 | 0.246 | 1.879 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@21 | 0.434 | 0.249 | 1.650 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@22 | 0.426 | 0.206 | 1.830 | - | - | - |
+| la_oracle_undo_calc_rmu_all | resid@23 | 0.494 | 0.238 | 1.167 | - | - | - |
+| la_oracle_undo_calc_rmu_all | w2@0 | 0.469 | 0.932 | 2.796 | 0.2548 | 2.1 | 0.464 |
+| la_oracle_undo_calc_rmu_all | w2@1 | -0.698 | 0.963 | 1.762 | 0.2536 | 1.4 | 0.643 |
+| la_oracle_undo_calc_rmu_all | w2@2 | 0.108 | 0.545 | 2.078 | 0.2561 | 1.5 | 0.385 |
+| la_oracle_undo_calc_rmu_all | w2@3 | 0.350 | 0.185 | 2.593 | 0.2579 | 1.3 | 0.776 |
+| la_oracle_undo_calc_rmu_all | w2@4 | 0.460 | 0.127 | 1.858 | 0.2585 | 1.6 | 0.871 |
+| la_oracle_undo_calc_rmu_all | w2@5 | 0.368 | 0.136 | 2.650 | 0.2531 | 2.0 | 0.062 |
+| la_oracle_undo_calc_rmu_all | w2@6 | 0.112 | 0.149 | 2.086 | 0.2530 | 1.6 | 0.243 |
+| la_oracle_undo_calc_rmu_all | w2@7 | 0.126 | 0.096 | 1.896 | 0.2533 | 1.6 | 0.156 |
+| la_oracle_undo_calc_rmu_all | w2@8 | 0.366 | 0.171 | 1.901 | 0.2527 | 1.4 | 0.089 |
+| la_oracle_undo_calc_rmu_all | w2@9 | 0.558 | 0.237 | 2.141 | 0.2533 | 1.0 | 0.036 |
+| la_oracle_undo_calc_rmu_all | w2@10 | 0.507 | 0.023 | 1.519 | 0.2524 | 1.1 | 0.035 |
+| la_oracle_undo_calc_rmu_all | w2@11 | 0.369 | 0.068 | 1.252 | 0.2525 | 1.1 | 0.079 |
+| la_oracle_undo_calc_rmu_all | w2@12 | 0.214 | 0.122 | 1.240 | 0.2520 | 1.1 | 0.066 |
+| la_oracle_undo_calc_rmu_all | w2@13 | 0.155 | 0.201 | 1.063 | 0.2522 | 1.2 | 0.066 |
+| la_oracle_undo_calc_rmu_all | w2@14 | 0.223 | 0.170 | 1.175 | 0.2512 | 1.2 | 0.247 |
+| la_oracle_undo_calc_rmu_all | w2@15 | -0.458 | 0.367 | 1.235 | 0.2519 | 1.8 | 0.720 |
+| la_oracle_undo_calc_rmu_all | w2@16 | -0.523 | 0.360 | 1.132 | 0.2532 | 1.6 | 0.687 |
+| la_oracle_undo_calc_rmu_all | w2@17 | -0.684 | 0.507 | 0.983 | 0.2535 | 2.0 | 0.842 |
+| la_oracle_undo_calc_rmu_all | w2@18 | -0.650 | 0.460 | 0.934 | 0.2539 | 1.6 | 0.829 |
+| la_oracle_undo_calc_rmu_all | w2@19 | -0.209 | 0.414 | 0.660 | 0.2538 | 2.0 | 0.843 |
+| la_oracle_undo_calc_rmu_all | w2@20 | 0.241 | 0.509 | 0.604 | 0.2545 | 1.6 | 0.849 |
+| la_oracle_undo_calc_rmu_all | w2@21 | 0.733 | 0.608 | 0.445 | 0.2553 | 1.7 | 0.916 |
+| la_oracle_undo_calc_rmu_all | w2@22 | -0.156 | 0.603 | 0.847 | 0.2549 | 1.6 | 0.750 |
+| la_oracle_undo_calc_rmu_all | w2@23 | -0.300 | 0.583 | 1.015 | 0.2540 | 1.6 | 0.784 |
+| la_surg_l2_book_b25 | resid@3 | 0.933 | 0.422 | - | - | - | - |
+| la_surg_l2_book_b25 | resid@4 | 0.952 | 0.261 | - | - | - | - |
+| la_surg_l2_book_b25 | resid@5 | 0.959 | 0.250 | - | - | - | - |
+| la_surg_l2_book_b25 | w2@3 | 0.967 | 0.274 | - | 0.2559 | 1722.7 | 0.967 |
+| la_surg_l2_book_b25 | w2@4 | 0.986 | 0.223 | - | 0.2893 | 3072.8 | 0.937 |
+| la_surg_l2_book_b25 | w2@5 | 0.984 | 0.387 | - | 0.2777 | 3703.4 | 0.763 |
+| la_surg_l2_book_b50 | resid@2 | 0.891 | 0.707 | - | - | - | - |
+| la_surg_l2_book_b50 | resid@3 | 0.765 | 0.755 | - | - | - | - |
+| la_surg_l2_book_b50 | resid@4 | 0.885 | 0.550 | - | - | - | - |
+| la_surg_l2_book_b50 | w2@2 | 0.987 | 0.360 | - | 0.2553 | 5.5 | 0.990 |
+| la_surg_l2_book_b50 | w2@3 | 0.961 | 0.750 | - | 0.2845 | 1.4 | 0.822 |
+| la_surg_l2_book_b50 | w2@4 | 0.985 | 0.711 | - | 0.2219 | 5.9 | 0.981 |
+| la_surg_l2_calc_b25 | resid@6 | 0.926 | 0.351 | 0.788 | - | - | - |
+| la_surg_l2_calc_b25 | resid@7 | 0.948 | 0.321 | 0.802 | - | - | - |
+| la_surg_l2_calc_b25 | resid@8 | 0.960 | 0.234 | 0.945 | - | - | - |
+| la_surg_l2_calc_b25 | w2@6 | 0.997 | 0.062 | 0.874 | 0.3337 | 4383.4 | 0.997 |
+| la_surg_l2_calc_b25 | w2@7 | 0.990 | 0.152 | 0.762 | 0.3226 | 3082.8 | 0.927 |
+| la_surg_l2_calc_b25 | w2@8 | 0.993 | 0.069 | 0.901 | 0.2857 | 4071.4 | 0.945 |
+| la_surg_l2_calc_b50 | resid@8 | 0.766 | 0.539 | 1.068 | - | - | - |
+| la_surg_l2_calc_b50 | resid@9 | 0.753 | 0.812 | 0.770 | - | - | - |
+| la_surg_l2_calc_b50 | resid@10 | 0.783 | 0.620 | 0.981 | - | - | - |
+| la_surg_l2_calc_b50 | resid@11 | 0.738 | 0.712 | 0.958 | - | - | - |
+| la_surg_l2_calc_b50 | resid@12 | 0.847 | 0.379 | 1.167 | - | - | - |
+| la_surg_l2_calc_b50 | resid@13 | 0.813 | 0.708 | 1.003 | - | - | - |
+| la_surg_l2_calc_b50 | resid@14 | 0.703 | 0.565 | 1.194 | - | - | - |
+| la_surg_l2_calc_b50 | resid@15 | 0.642 | 0.577 | 1.022 | - | - | - |
+| la_surg_l2_calc_b50 | w2@8 | 0.928 | -0.105 | 2.854 | 0.1721 | 6.0 | 0.932 |
+| la_surg_l2_calc_b50 | w2@9 | 0.701 | -0.086 | 2.458 | 0.1811 | 6.4 | 0.611 |
+| la_surg_l2_calc_b50 | w2@10 | 0.931 | -0.043 | 2.195 | 0.1800 | 4.6 | 0.894 |
+| la_surg_l2_calc_b50 | w2@11 | 0.946 | -0.314 | 2.377 | 0.1886 | 5.3 | 0.930 |
+| la_surg_l2_calc_b50 | w2@12 | 0.951 | -0.241 | 2.915 | 0.1755 | 4.0 | 0.927 |
+| la_surg_l2_calc_b50 | w2@13 | 0.951 | -0.228 | 4.064 | 0.1805 | 4.8 | 0.925 |
+| la_surg_l2_calc_b50 | w2@14 | 0.932 | -0.015 | 4.731 | 0.1734 | 4.3 | 0.902 |
+| la_surg_l2_calc_b50 | w2@15 | 0.963 | -0.160 | 6.434 | 0.1743 | 5.4 | 0.956 |
+| la_undo_book_rmu_l2-4 | resid@2 | 0.481 | 0.700 | - | - | - | - |
+| la_undo_book_rmu_l2-4 | resid@3 | 0.902 | 0.385 | - | - | - | - |
+| la_undo_book_rmu_l2-4 | resid@4 | 0.891 | 0.180 | - | - | - | - |
+| la_undo_book_rmu_l2-4 | w2@2 | 0.507 | 0.487 | - | 0.2574 | 1.3 | 0.828 |
+| la_undo_book_rmu_l2-4 | w2@3 | 0.566 | 0.018 | - | 0.2591 | 1.4 | 0.892 |
+| la_undo_book_rmu_l2-4 | w2@4 | 0.415 | -0.111 | - | 0.2590 | 1.7 | 0.828 |
+| la_undo_book_rmu_l8-15 | resid@8 | 0.721 | 0.202 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@9 | 0.839 | 0.210 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@10 | 0.555 | 0.209 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@11 | 0.772 | 0.248 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@12 | 0.385 | 0.259 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@13 | 0.608 | 0.297 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@14 | 0.562 | 0.391 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | resid@15 | 0.622 | 0.417 | - | - | - | - |
+| la_undo_book_rmu_l8-15 | w2@8 | 0.406 | 0.145 | - | 0.2527 | 1.4 | 0.084 |
+| la_undo_book_rmu_l8-15 | w2@9 | 0.606 | 0.242 | - | 0.2531 | 1.1 | 0.121 |
+| la_undo_book_rmu_l8-15 | w2@10 | 0.674 | 0.272 | - | 0.2525 | 1.2 | 0.158 |
+| la_undo_book_rmu_l8-15 | w2@11 | 0.752 | 0.370 | - | 0.2526 | 1.1 | 0.525 |
+| la_undo_book_rmu_l8-15 | w2@12 | 0.657 | 0.303 | - | 0.2523 | 1.1 | 0.345 |
+| la_undo_book_rmu_l8-15 | w2@13 | 0.752 | 0.412 | - | 0.2524 | 1.2 | 0.499 |
+| la_undo_book_rmu_l8-15 | w2@14 | 0.420 | 0.300 | - | 0.2518 | 1.1 | 0.131 |
+| la_undo_book_rmu_l8-15 | w2@15 | 0.190 | 0.336 | - | 0.2523 | 1.8 | 0.020 |
+| la_undo_calc_rmu_l2-4 | resid@2 | 0.250 | 0.722 | 1.269 | - | - | - |
+| la_undo_calc_rmu_l2-4 | resid@3 | 0.777 | 0.376 | 0.912 | - | - | - |
+| la_undo_calc_rmu_l2-4 | resid@4 | 0.895 | 0.146 | 1.020 | - | - | - |
+| la_undo_calc_rmu_l2-4 | w2@2 | 0.108 | 0.545 | 2.078 | 0.2561 | 1.5 | 0.385 |
+| la_undo_calc_rmu_l2-4 | w2@3 | 0.350 | 0.185 | 2.593 | 0.2579 | 1.3 | 0.776 |
+| la_undo_calc_rmu_l2-4 | w2@4 | 0.460 | 0.127 | 1.858 | 0.2585 | 1.6 | 0.871 |
+| la_undo_calc_rmu_l8-15 | resid@8 | 0.685 | 0.190 | 1.177 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@9 | 0.852 | 0.321 | 1.073 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@10 | 0.587 | 0.199 | 1.443 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@11 | 0.812 | 0.255 | 1.274 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@12 | 0.541 | 0.230 | 1.930 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@13 | 0.824 | 0.391 | 1.213 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@14 | 0.683 | 0.229 | 1.590 | - | - | - |
+| la_undo_calc_rmu_l8-15 | resid@15 | 0.734 | 0.251 | 1.544 | - | - | - |
+| la_undo_calc_rmu_l8-15 | w2@8 | 0.366 | 0.171 | 1.901 | 0.2527 | 1.3 | 0.102 |
+| la_undo_calc_rmu_l8-15 | w2@9 | 0.558 | 0.237 | 2.141 | 0.2533 | 1.1 | 0.025 |
+| la_undo_calc_rmu_l8-15 | w2@10 | 0.507 | 0.023 | 1.519 | 0.2524 | 1.1 | 0.059 |
+| la_undo_calc_rmu_l8-15 | w2@11 | 0.369 | 0.068 | 1.252 | 0.2525 | 1.2 | 0.116 |
+| la_undo_calc_rmu_l8-15 | w2@12 | 0.214 | 0.122 | 1.240 | 0.2520 | 1.1 | 0.022 |
+| la_undo_calc_rmu_l8-15 | w2@13 | 0.155 | 0.201 | 1.063 | 0.2522 | 1.3 | 0.119 |
+| la_undo_calc_rmu_l8-15 | w2@14 | 0.223 | 0.170 | 1.175 | 0.2512 | 1.2 | 0.279 |
+| la_undo_calc_rmu_l8-15 | w2@15 | -0.458 | 0.367 | 1.235 | 0.2519 | 1.8 | 0.725 |
+
 ## 6. Fine-tune relearning curves (attack 10) on 20 forget-dev items vs 20 related retain items
 
-Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Attacker: LoRA r16 lr 2e-4 (default); full = all weights, fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*).
+Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Attacker: LoRA r16 lr 2e-4 (default); full = all weights, fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*). r5_* = related-data attack: all weights, 1,000 steps on 200 retain-math solutions (related) or 1,000 FineWeb documents (web).
 
-| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 |
-|---|---|---|---|---|---|---|---|---|---|
-| book_npo | LoRA | forget | verbmem_f1 | 0.352 | 0.775 | 0.815 | 0.655 | 0.715 | - |
-| book_npo | LoRA | related | verbmem_f1 | 0.352 | 0.427 | 0.378 | 0.394 | 0.425 | - |
-| book_npo_sam_r0.003_lr3e-5 | LoRA | forget | verbmem_f1 | 0.173 | 0.213 | 0.203 | 0.199 | 0.196 | - |
-| book_npo_sam_r0.003_lr3e-5 | LoRA | related | verbmem_f1 | 0.173 | 0.163 | 0.178 | 0.181 | 0.175 | - |
-| book_npo_sam_r0.01_lr1e-5 | LoRA | forget | verbmem_f1 | 0.229 | 0.517 | 0.653 | 0.545 | 0.546 | - |
-| book_npo_sam_r0.01_lr1e-5 | LoRA | related | verbmem_f1 | 0.229 | 0.345 | 0.308 | 0.325 | 0.336 | - |
-| book_npo_sam_r0.01_lr3e-5 | LoRA | forget | verbmem_f1 | 0.158 | 0.214 | 0.214 | 0.210 | 0.212 | - |
-| book_npo_sam_r0.01_lr3e-5 | LoRA | related | verbmem_f1 | 0.158 | 0.175 | 0.186 | 0.179 | 0.176 | - |
-| book_npo_sam_r0.1_lr1e-5 | LoRA | forget | verbmem_f1 | 0.933 | 0.698 | 0.693 | 0.668 | 0.699 | - |
-| book_npo_sam_r0.1_lr1e-5 | LoRA | related | verbmem_f1 | 0.933 | 0.892 | 0.855 | 0.900 | 0.906 | - |
-| book_npo_sam_r0.1_lr3e-5 | LoRA | forget | verbmem_f1 | 0.245 | 0.316 | 0.281 | 0.295 | 0.279 | - |
-| book_npo_sam_r0.1_lr3e-5 | LoRA | related | verbmem_f1 | 0.245 | 0.246 | 0.243 | 0.254 | 0.229 | - |
-| book_npofull_plain_lr1e-5 | LoRA | forget | verbmem_f1 | 0.310 | 0.583 | 0.578 | 0.534 | 0.553 | - |
-| book_npofull_plain_lr1e-5 | LoRA | related | verbmem_f1 | 0.310 | 0.410 | 0.398 | 0.400 | 0.393 | - |
-| book_npofull_plain_lr3e-5 | LoRA | forget | verbmem_f1 | 0.185 | 0.220 | 0.214 | 0.191 | 0.199 | - |
-| book_npofull_plain_lr3e-5 | LoRA | related | verbmem_f1 | 0.185 | 0.174 | 0.186 | 0.191 | 0.191 | - |
-| book_rmu_l4 | LoRA | forget | verbmem_f1 | 0.131 | 0.178 | 0.390 | 0.298 | 0.296 | - |
-| book_rmu_l4 | LoRA | related | verbmem_f1 | 0.131 | 0.122 | 0.123 | 0.111 | 0.114 | - |
-| calc_npo | LoRA | forget | calc_acc | 0.500 | 0.580 | 0.650 | 0.700 | 0.690 | - |
-| calc_npo | LoRA | related | calc_acc | 0.500 | 0.510 | 0.530 | 0.520 | 0.520 | - |
-| calc_npo_sam_r0.003 | LoRA | forget | calc_acc | 0.470 | 0.620 | 0.650 | 0.710 | 0.750 | - |
-| calc_npo_sam_r0.003 | LoRA | related | calc_acc | 0.470 | 0.490 | 0.440 | 0.530 | 0.460 | - |
-| calc_npo_sam_r0.01 | LoRA | forget | calc_acc | 0.400 | 0.510 | 0.580 | 0.670 | 0.650 | - |
-| calc_npo_sam_r0.01 | LoRA | related | calc_acc | 0.400 | 0.330 | 0.400 | 0.430 | 0.410 | - |
-| calc_npo_sam_r0.1 | LoRA | forget | calc_acc | 0.740 | 0.710 | 0.720 | 0.770 | 0.790 | - |
-| calc_npo_sam_r0.1 | LoRA | related | calc_acc | 0.740 | 0.750 | 0.730 | 0.710 | 0.770 | - |
-| calc_npofull_plain | LoRA | forget | calc_acc | 0.640 | 0.670 | 0.680 | 0.720 | 0.800 | - |
-| calc_npofull_plain | LoRA | related | calc_acc | 0.640 | 0.630 | 0.630 | 0.600 | 0.600 | - |
-| calc_rmu_l4_c20 | LoRA | forget | calc_acc | 0.000 | 0.370 | 0.740 | 0.710 | 0.720 | - |
-| calc_rmu_l4_c20 | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - |
-| calc_rmu_l4_c5 | LoRA | forget | calc_acc | 0.600 | 0.750 | 0.690 | 0.780 | 0.720 | - |
-| calc_rmu_l4_c5 | LoRA | related | calc_acc | 0.600 | 0.590 | 0.630 | 0.630 | 0.610 | - |
-| mnpo_book | LoRA | forget | verbmem_f1 | 0.236 | 0.336 | 0.321 | 0.314 | 0.314 | - |
-| mnpo_book | LoRA | related | verbmem_f1 | 0.236 | 0.241 | 0.225 | 0.234 | 0.243 | - |
-| mnpo_book_rand | LoRA | forget | verbmem_f1 | 0.372 | 0.718 | 0.709 | 0.659 | 0.616 | - |
-| mnpo_book_rand | LoRA | related | verbmem_f1 | 0.372 | 0.474 | 0.399 | 0.417 | 0.426 | - |
-| mnpo_book_rand_lr1e-3_e6 | LoRA | forget | verbmem_f1 | 0.396 | 0.721 | 0.725 | 0.688 | 0.705 | - |
-| mnpo_book_rand_lr1e-3_e6 | LoRA | related | verbmem_f1 | 0.396 | 0.437 | 0.409 | 0.396 | 0.427 | - |
-| mnpo_book_rand_lr2e-3 | LoRA | forget | verbmem_f1 | 0.333 | 0.386 | 0.461 | 0.399 | 0.380 | - |
-| mnpo_book_rand_lr2e-3 | LoRA | related | verbmem_f1 | 0.333 | 0.364 | 0.305 | 0.330 | 0.362 | - |
-| mnpo_book_rand_s1 | LoRA | forget | verbmem_f1 | 0.285 | 0.622 | 0.491 | 0.465 | 0.508 | - |
-| mnpo_book_rand_s1 | LoRA | related | verbmem_f1 | 0.285 | 0.345 | 0.370 | 0.370 | 0.377 | - |
-| mnpo_book_rand_s2 | LoRA | forget | verbmem_f1 | 0.317 | 0.686 | 0.566 | 0.508 | 0.553 | - |
-| mnpo_book_rand_s2 | LoRA | related | verbmem_f1 | 0.317 | 0.380 | 0.332 | 0.310 | 0.345 | - |
-| mnpo_book_s1 | LoRA | forget | verbmem_f1 | 0.211 | 0.327 | 0.288 | 0.276 | 0.276 | - |
-| mnpo_book_s1 | LoRA | related | verbmem_f1 | 0.211 | 0.211 | 0.204 | 0.192 | 0.213 | - |
-| mnpo_book_s2 | LoRA | forget | verbmem_f1 | 0.260 | 0.394 | 0.329 | 0.310 | 0.329 | - |
-| mnpo_book_s2 | LoRA | related | verbmem_f1 | 0.260 | 0.245 | 0.245 | 0.246 | 0.262 | - |
-| mnpo_calc | LoRA | forget | calc_acc | 0.510 | 0.470 | 0.650 | 0.620 | 0.640 | - |
-| mnpo_calc | LoRA | related | calc_acc | 0.510 | 0.450 | 0.500 | 0.520 | 0.510 | - |
-| mnpo_calc_rand | LoRA | forget | calc_acc | 0.620 | 0.700 | 0.710 | 0.710 | 0.740 | - |
-| mnpo_calc_rand | LoRA | related | calc_acc | 0.620 | 0.580 | 0.610 | 0.580 | 0.590 | - |
-| mrmu_book_l4 | LoRA | forget | verbmem_f1 | 0.086 | 0.127 | 0.513 | 0.354 | 0.384 | - |
-| mrmu_book_l4 | LoRA | related | verbmem_f1 | 0.086 | 0.086 | 0.086 | 0.087 | 0.086 | - |
-| mrmu_book_l4_rand | LoRA | forget | verbmem_f1 | 0.098 | 0.119 | 0.597 | 0.473 | 0.479 | - |
-| mrmu_book_l4_rand | LoRA | related | verbmem_f1 | 0.098 | 0.105 | 0.099 | 0.097 | 0.096 | - |
-| mrmu_calc_l4 | LoRA | forget | calc_acc | 0.000 | 0.000 | 0.410 | 0.700 | 0.750 | - |
-| mrmu_calc_l4 | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - |
-| mrmu_calc_l4_rand | LoRA | forget | calc_acc | 0.000 | 0.000 | 0.610 | 0.720 | 0.740 | - |
-| mrmu_calc_l4_rand | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - |
-| retain_book | LoRA | forget | verbmem_f1 | 0.144 | 0.141 | 0.142 | 0.145 | 0.128 | - |
-| retain_book | LoRA | related | verbmem_f1 | 0.144 | 0.157 | 0.152 | 0.148 | 0.150 | - |
-| rlf_book_npofull_plain_lr3e-5 | full | forget | verbmem_f1 | 0.172 | 0.207 | 0.214 | 0.189 | 0.196 | - |
-| rlf_book_rmu_l4 | full | forget | verbmem_f1 | 0.133 | 0.190 | 0.240 | 0.212 | 0.194 | - |
-| rlf_mnpo_book | full | forget | verbmem_f1 | 0.243 | 0.267 | 0.283 | 0.244 | 0.238 | - |
-| rlf_retain | full | forget | verbmem_f1 | 0.148 | 0.134 | 0.140 | 0.140 | 0.134 | - |
-| rlf_undo_book_rmu | full | forget | verbmem_f1 | 0.135 | 0.111 | 0.144 | 0.138 | 0.141 | - |
-| rlfx_book_npofull_plain_lr3e-5 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.241 | 0.338 | 0.300 | 0.316 |
-| rlfx_book_rmu_l4 | full+200 | forget | verbmem_f1 | 0.133 | - | 0.389 | 0.567 | 0.522 | 0.341 |
-| rlfx_mnpo_book | full+200 | forget | verbmem_f1 | 0.243 | - | 0.441 | 0.478 | 0.401 | 0.289 |
-| rlfx_retain | full+200 | forget | verbmem_f1 | 0.148 | - | 0.124 | 0.130 | 0.149 | 0.145 |
-| rlfx_surg_l2_book_b25 | full+200 | forget | verbmem_f1 | 0.134 | - | 0.567 | 0.502 | 0.535 | 0.375 |
-| rlfx_surg_l2_book_b50 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.414 | 0.507 | 0.371 | 0.372 |
-| rlfx_undo_book_rmu | full+200 | forget | verbmem_f1 | 0.135 | - | 0.161 | 0.177 | 0.174 | 0.161 |
-| surg_base_book | LoRA | forget | verbmem_f1 | 0.644 | 0.639 | 0.422 | 0.478 | 0.459 | - |
-| surg_base_book | LoRA | related | verbmem_f1 | 0.644 | 0.283 | 0.253 | 0.251 | 0.276 | - |
-| surg_base_calc | LoRA | forget | calc_acc | 0.670 | 0.740 | 0.770 | 0.740 | 0.750 | - |
-| surg_base_calc | LoRA | related | calc_acc | 0.670 | 0.660 | 0.710 | 0.720 | 0.670 | - |
-| surg_l2_book_b25 | LoRA | forget | verbmem_f1 | 0.145 | 0.389 | 0.457 | 0.374 | 0.439 | - |
-| surg_l2_book_b25 | LoRA | related | verbmem_f1 | 0.145 | 0.149 | 0.143 | 0.150 | 0.147 | - |
-| surg_l2_book_b50 | LoRA | forget | verbmem_f1 | 0.145 | 0.402 | 0.438 | 0.367 | 0.410 | - |
-| surg_l2_book_b50 | LoRA | related | verbmem_f1 | 0.145 | 0.170 | 0.153 | 0.155 | 0.154 | - |
-| surg_l2_calc_b25 | LoRA | forget | calc_acc | 0.120 | 0.590 | 0.730 | 0.730 | 0.750 | - |
-| surg_l2_calc_b25 | LoRA | related | calc_acc | 0.120 | 0.100 | 0.080 | 0.080 | 0.130 | - |
-| surg_l2_calc_b50 | LoRA | forget | calc_acc | 0.060 | 0.340 | 0.560 | 0.610 | 0.600 | - |
-| surg_l2_calc_b50 | LoRA | related | calc_acc | 0.060 | 0.090 | 0.100 | 0.110 | 0.050 | - |
-| target_book | LoRA | forget | verbmem_f1 | 0.944 | 0.944 | 0.811 | 0.829 | 0.826 | - |
-| target_book | LoRA | related | verbmem_f1 | 0.944 | 0.944 | 0.893 | 0.912 | 0.944 | - |
-| target_calc | LoRA | forget | calc_acc | 0.710 | 0.710 | 0.740 | 0.730 | 0.780 | - |
-| target_calc | LoRA | related | calc_acc | 0.710 | 0.760 | 0.700 | 0.720 | 0.780 | - |
-| undo_book_rmu | LoRA | forget | verbmem_f1 | 0.127 | 0.131 | 0.160 | 0.149 | 0.139 | - |
-| undo_book_rmu | LoRA | related | verbmem_f1 | 0.127 | 0.117 | 0.117 | 0.108 | 0.110 | - |
-| undo_calc_ctrl | LoRA | forget | calc_acc | 0.730 | 0.720 | 0.810 | 0.810 | 0.800 | - |
-| undo_calc_ctrl | LoRA | related | calc_acc | 0.730 | 0.780 | 0.780 | 0.710 | 0.740 | - |
-| undo_calc_rmu | LoRA | forget | calc_acc | 0.000 | 0.080 | 0.580 | 0.660 | 0.680 | - |
-| undo_calc_rmu | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - |
+| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 | 250 | 500 | 1000 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| book_npo | LoRA | forget | verbmem_f1 | 0.352 | 0.775 | 0.815 | 0.655 | 0.715 | - | - | - | - |
+| book_npo | LoRA | related | verbmem_f1 | 0.352 | 0.427 | 0.378 | 0.394 | 0.425 | - | - | - | - |
+| book_npo_sam_r0.003_lr3e-5 | LoRA | forget | verbmem_f1 | 0.173 | 0.213 | 0.203 | 0.199 | 0.196 | - | - | - | - |
+| book_npo_sam_r0.003_lr3e-5 | LoRA | related | verbmem_f1 | 0.173 | 0.163 | 0.178 | 0.181 | 0.175 | - | - | - | - |
+| book_npo_sam_r0.01_lr1e-5 | LoRA | forget | verbmem_f1 | 0.229 | 0.517 | 0.653 | 0.545 | 0.546 | - | - | - | - |
+| book_npo_sam_r0.01_lr1e-5 | LoRA | related | verbmem_f1 | 0.229 | 0.345 | 0.308 | 0.325 | 0.336 | - | - | - | - |
+| book_npo_sam_r0.01_lr3e-5 | LoRA | forget | verbmem_f1 | 0.158 | 0.214 | 0.214 | 0.210 | 0.212 | - | - | - | - |
+| book_npo_sam_r0.01_lr3e-5 | LoRA | related | verbmem_f1 | 0.158 | 0.175 | 0.186 | 0.179 | 0.176 | - | - | - | - |
+| book_npo_sam_r0.1_lr1e-5 | LoRA | forget | verbmem_f1 | 0.933 | 0.698 | 0.693 | 0.668 | 0.699 | - | - | - | - |
+| book_npo_sam_r0.1_lr1e-5 | LoRA | related | verbmem_f1 | 0.933 | 0.892 | 0.855 | 0.900 | 0.906 | - | - | - | - |
+| book_npo_sam_r0.1_lr3e-5 | LoRA | forget | verbmem_f1 | 0.245 | 0.316 | 0.281 | 0.295 | 0.279 | - | - | - | - |
+| book_npo_sam_r0.1_lr3e-5 | LoRA | related | verbmem_f1 | 0.245 | 0.246 | 0.243 | 0.254 | 0.229 | - | - | - | - |
+| book_npofull_plain_lr1e-5 | LoRA | forget | verbmem_f1 | 0.310 | 0.583 | 0.578 | 0.534 | 0.553 | - | - | - | - |
+| book_npofull_plain_lr1e-5 | LoRA | related | verbmem_f1 | 0.310 | 0.410 | 0.398 | 0.400 | 0.393 | - | - | - | - |
+| book_npofull_plain_lr3e-5 | LoRA | forget | verbmem_f1 | 0.185 | 0.220 | 0.214 | 0.191 | 0.199 | - | - | - | - |
+| book_npofull_plain_lr3e-5 | LoRA | related | verbmem_f1 | 0.185 | 0.174 | 0.186 | 0.191 | 0.191 | - | - | - | - |
+| book_rmu_l4 | LoRA | forget | verbmem_f1 | 0.131 | 0.178 | 0.390 | 0.298 | 0.296 | - | - | - | - |
+| book_rmu_l4 | LoRA | related | verbmem_f1 | 0.131 | 0.122 | 0.123 | 0.111 | 0.114 | - | - | - | - |
+| calc_npo | LoRA | forget | calc_acc | 0.500 | 0.580 | 0.650 | 0.700 | 0.690 | - | - | - | - |
+| calc_npo | LoRA | related | calc_acc | 0.500 | 0.510 | 0.530 | 0.520 | 0.520 | - | - | - | - |
+| calc_npo_sam_r0.003 | LoRA | forget | calc_acc | 0.470 | 0.620 | 0.650 | 0.710 | 0.750 | - | - | - | - |
+| calc_npo_sam_r0.003 | LoRA | related | calc_acc | 0.470 | 0.490 | 0.440 | 0.530 | 0.460 | - | - | - | - |
+| calc_npo_sam_r0.01 | LoRA | forget | calc_acc | 0.400 | 0.510 | 0.580 | 0.670 | 0.650 | - | - | - | - |
+| calc_npo_sam_r0.01 | LoRA | related | calc_acc | 0.400 | 0.330 | 0.400 | 0.430 | 0.410 | - | - | - | - |
+| calc_npo_sam_r0.1 | LoRA | forget | calc_acc | 0.740 | 0.710 | 0.720 | 0.770 | 0.790 | - | - | - | - |
+| calc_npo_sam_r0.1 | LoRA | related | calc_acc | 0.740 | 0.750 | 0.730 | 0.710 | 0.770 | - | - | - | - |
+| calc_npofull_plain | LoRA | forget | calc_acc | 0.640 | 0.670 | 0.680 | 0.720 | 0.800 | - | - | - | - |
+| calc_npofull_plain | LoRA | related | calc_acc | 0.640 | 0.630 | 0.630 | 0.600 | 0.600 | - | - | - | - |
+| calc_rmu_l4_c20 | LoRA | forget | calc_acc | 0.000 | 0.370 | 0.740 | 0.710 | 0.720 | - | - | - | - |
+| calc_rmu_l4_c20 | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - | - | - | - |
+| calc_rmu_l4_c5 | LoRA | forget | calc_acc | 0.600 | 0.750 | 0.690 | 0.780 | 0.720 | - | - | - | - |
+| calc_rmu_l4_c5 | LoRA | related | calc_acc | 0.600 | 0.590 | 0.630 | 0.630 | 0.610 | - | - | - | - |
+| cs_calc_rmu_l4_c20_diff | full | forget_diff | calc_acc | 0.004 | - | 0.329 | 0.325 | 0.346 | 0.342 | - | - | - |
+| cs_undo_calc_rmu_diff | full | forget_diff | calc_acc | 0.000 | - | 0.300 | 0.313 | 0.284 | 0.309 | - | - | - |
+| cs_undo_calc_rmu_forget | full | forget | calc_acc | 0.000 | - | 0.576 | 0.712 | 0.716 | 0.700 | - | - | - |
+| mnpo_book | LoRA | forget | verbmem_f1 | 0.236 | 0.336 | 0.321 | 0.314 | 0.314 | - | - | - | - |
+| mnpo_book | LoRA | related | verbmem_f1 | 0.236 | 0.241 | 0.225 | 0.234 | 0.243 | - | - | - | - |
+| mnpo_book_rand | LoRA | forget | verbmem_f1 | 0.372 | 0.718 | 0.709 | 0.659 | 0.616 | - | - | - | - |
+| mnpo_book_rand | LoRA | related | verbmem_f1 | 0.372 | 0.474 | 0.399 | 0.417 | 0.426 | - | - | - | - |
+| mnpo_book_rand_lr1e-3_e6 | LoRA | forget | verbmem_f1 | 0.396 | 0.721 | 0.725 | 0.688 | 0.705 | - | - | - | - |
+| mnpo_book_rand_lr1e-3_e6 | LoRA | related | verbmem_f1 | 0.396 | 0.437 | 0.409 | 0.396 | 0.427 | - | - | - | - |
+| mnpo_book_rand_lr2e-3 | LoRA | forget | verbmem_f1 | 0.333 | 0.386 | 0.461 | 0.399 | 0.380 | - | - | - | - |
+| mnpo_book_rand_lr2e-3 | LoRA | related | verbmem_f1 | 0.333 | 0.364 | 0.305 | 0.330 | 0.362 | - | - | - | - |
+| mnpo_book_rand_s1 | LoRA | forget | verbmem_f1 | 0.285 | 0.622 | 0.491 | 0.465 | 0.508 | - | - | - | - |
+| mnpo_book_rand_s1 | LoRA | related | verbmem_f1 | 0.285 | 0.345 | 0.370 | 0.370 | 0.377 | - | - | - | - |
+| mnpo_book_rand_s2 | LoRA | forget | verbmem_f1 | 0.317 | 0.686 | 0.566 | 0.508 | 0.553 | - | - | - | - |
+| mnpo_book_rand_s2 | LoRA | related | verbmem_f1 | 0.317 | 0.380 | 0.332 | 0.310 | 0.345 | - | - | - | - |
+| mnpo_book_s1 | LoRA | forget | verbmem_f1 | 0.211 | 0.327 | 0.288 | 0.276 | 0.276 | - | - | - | - |
+| mnpo_book_s1 | LoRA | related | verbmem_f1 | 0.211 | 0.211 | 0.204 | 0.192 | 0.213 | - | - | - | - |
+| mnpo_book_s2 | LoRA | forget | verbmem_f1 | 0.260 | 0.394 | 0.329 | 0.310 | 0.329 | - | - | - | - |
+| mnpo_book_s2 | LoRA | related | verbmem_f1 | 0.260 | 0.245 | 0.245 | 0.246 | 0.262 | - | - | - | - |
+| mnpo_calc | LoRA | forget | calc_acc | 0.510 | 0.470 | 0.650 | 0.620 | 0.640 | - | - | - | - |
+| mnpo_calc | LoRA | related | calc_acc | 0.510 | 0.450 | 0.500 | 0.520 | 0.510 | - | - | - | - |
+| mnpo_calc_rand | LoRA | forget | calc_acc | 0.620 | 0.700 | 0.710 | 0.710 | 0.740 | - | - | - | - |
+| mnpo_calc_rand | LoRA | related | calc_acc | 0.620 | 0.580 | 0.610 | 0.580 | 0.590 | - | - | - | - |
+| mrmu_book_l4 | LoRA | forget | verbmem_f1 | 0.086 | 0.127 | 0.513 | 0.354 | 0.384 | - | - | - | - |
+| mrmu_book_l4 | LoRA | related | verbmem_f1 | 0.086 | 0.086 | 0.086 | 0.087 | 0.086 | - | - | - | - |
+| mrmu_book_l4_rand | LoRA | forget | verbmem_f1 | 0.098 | 0.119 | 0.597 | 0.473 | 0.479 | - | - | - | - |
+| mrmu_book_l4_rand | LoRA | related | verbmem_f1 | 0.098 | 0.105 | 0.099 | 0.097 | 0.096 | - | - | - | - |
+| mrmu_calc_l4 | LoRA | forget | calc_acc | 0.000 | 0.000 | 0.410 | 0.700 | 0.750 | - | - | - | - |
+| mrmu_calc_l4 | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - | - | - | - |
+| mrmu_calc_l4_rand | LoRA | forget | calc_acc | 0.000 | 0.000 | 0.610 | 0.720 | 0.740 | - | - | - | - |
+| mrmu_calc_l4_rand | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - | - | - | - |
+| r5_calc_rmu_l4_c20 | full | related | calc_acc | 0.000 | - | - | - | 0.000 | - | 0.000 | 0.000 | 0.010 |
+| r5_calc_rmu_l4_c20 | full | web | calc_acc | 0.000 | - | - | - | 0.000 | - | 0.000 | 0.000 | 0.000 |
+| r5_surg_l2_calc_b25 | full | related | calc_acc | 0.120 | - | - | - | 0.190 | - | 0.150 | 0.080 | 0.090 |
+| r5_surg_l2_calc_b25 | full | web | calc_acc | 0.120 | - | - | - | 0.120 | - | 0.080 | 0.080 | 0.020 |
+| r5_target | full | related | calc_acc | 0.730 | - | - | - | 0.660 | - | 0.570 | 0.510 | 0.390 |
+| r5_target | full | web | calc_acc | 0.730 | - | - | - | 0.720 | - | 0.740 | 0.730 | 0.740 |
+| retain_book | LoRA | forget | verbmem_f1 | 0.144 | 0.141 | 0.142 | 0.145 | 0.128 | - | - | - | - |
+| retain_book | LoRA | related | verbmem_f1 | 0.144 | 0.157 | 0.152 | 0.148 | 0.150 | - | - | - | - |
+| rg_book_npofull_plain_lr3e-5_lr1e-4_constant_s0 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.136 | 0.122 | 0.135 | 0.138 | - | - | - |
+| rg_book_npofull_plain_lr3e-5_lr1e-4_cosine_s0 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.148 | 0.148 | 0.133 | 0.144 | - | - | - |
+| rg_book_npofull_plain_lr3e-5_lr1e-5_constant_s0 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.236 | 0.339 | 0.297 | 0.299 | - | - | - |
+| rg_book_npofull_plain_lr3e-5_lr1e-5_cosine_s0 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.225 | 0.355 | 0.345 | 0.349 | - | - | - |
+| rg_retain_book_lr1e-4_constant_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.113 | 0.115 | 0.124 | 0.130 | - | - | - |
+| rg_retain_book_lr1e-4_constant_s1 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.107 | 0.105 | 0.131 | 0.128 | - | - | - |
+| rg_retain_book_lr1e-4_constant_s2 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.124 | 0.101 | 0.122 | 0.126 | - | - | - |
+| rg_retain_book_lr1e-4_cosine_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.100 | 0.117 | 0.135 | 0.132 | - | - | - |
+| rg_retain_book_lr1e-4_cosine_s1 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.110 | 0.108 | 0.125 | 0.137 | - | - | - |
+| rg_retain_book_lr1e-4_cosine_s2 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.113 | 0.106 | 0.122 | 0.143 | - | - | - |
+| rg_retain_book_lr1e-5_constant_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.127 | 0.132 | 0.148 | 0.149 | - | - | - |
+| rg_retain_book_lr1e-5_constant_s1 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.133 | 0.156 | 0.156 | 0.145 | - | - | - |
+| rg_retain_book_lr1e-5_constant_s2 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.121 | 0.120 | 0.146 | 0.145 | - | - | - |
+| rg_retain_book_lr1e-5_cosine_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.136 | 0.118 | 0.147 | 0.145 | - | - | - |
+| rg_retain_book_lr1e-5_cosine_s1 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.126 | 0.128 | 0.155 | 0.148 | - | - | - |
+| rg_retain_book_lr1e-5_cosine_s2 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.118 | 0.115 | 0.154 | 0.160 | - | - | - |
+| rg_retain_book_lr3e-5_constant_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.116 | 0.107 | 0.125 | 0.136 | - | - | - |
+| rg_retain_book_lr3e-5_cosine_s0 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.125 | 0.113 | 0.136 | 0.151 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_constant_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.117 | 0.110 | 0.134 | 0.137 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_constant_s1 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.111 | 0.110 | 0.125 | 0.146 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_constant_s2 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.125 | 0.131 | 0.128 | 0.131 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_cosine_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.121 | 0.129 | 0.133 | 0.134 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_cosine_s1 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.118 | 0.118 | 0.134 | 0.136 | - | - | - |
+| rg_undo_book_rmu_lr1e-4_cosine_s2 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.143 | 0.113 | 0.132 | 0.136 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_constant_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.160 | 0.177 | 0.176 | 0.162 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_constant_s1 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.154 | 0.160 | 0.153 | 0.172 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_constant_s2 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.165 | 0.182 | 0.172 | 0.165 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_cosine_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.173 | 0.168 | 0.169 | 0.171 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_cosine_s1 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.164 | 0.170 | 0.167 | 0.170 | - | - | - |
+| rg_undo_book_rmu_lr1e-5_cosine_s2 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.169 | 0.165 | 0.172 | 0.172 | - | - | - |
+| rg_undo_book_rmu_lr3e-5_constant_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.145 | 0.152 | 0.146 | 0.143 | - | - | - |
+| rg_undo_book_rmu_lr3e-5_cosine_s0 | full+200 | forget | verbmem_f1 | 0.135 | - | 0.142 | 0.146 | 0.150 | 0.155 | - | - | - |
+| rlf_book_npofull_plain_lr3e-5 | full | forget | verbmem_f1 | 0.172 | 0.207 | 0.214 | 0.189 | 0.196 | - | - | - | - |
+| rlf_book_rmu_l4 | full | forget | verbmem_f1 | 0.133 | 0.190 | 0.240 | 0.212 | 0.194 | - | - | - | - |
+| rlf_mnpo_book | full | forget | verbmem_f1 | 0.243 | 0.267 | 0.283 | 0.244 | 0.238 | - | - | - | - |
+| rlf_retain | full | forget | verbmem_f1 | 0.148 | 0.134 | 0.140 | 0.140 | 0.134 | - | - | - | - |
+| rlf_undo_book_rmu | full | forget | verbmem_f1 | 0.135 | 0.111 | 0.144 | 0.138 | 0.141 | - | - | - | - |
+| rlfx_book_npofull_plain_lr3e-5 | full+200 | forget | verbmem_f1 | 0.172 | - | 0.241 | 0.338 | 0.300 | 0.316 | - | - | - |
+| rlfx_book_rmu_l4 | full+200 | forget | verbmem_f1 | 0.133 | - | 0.389 | 0.567 | 0.522 | 0.341 | - | - | - |
+| rlfx_mnpo_book | full+200 | forget | verbmem_f1 | 0.243 | - | 0.441 | 0.478 | 0.401 | 0.289 | - | - | - |
+| rlfx_retain | full+200 | forget | verbmem_f1 | 0.148 | - | 0.124 | 0.130 | 0.149 | 0.145 | - | - | - |
+| rlfx_surg_l2_book_b25 | full+200 | forget | verbmem_f1 | 0.134 | - | 0.567 | 0.502 | 0.535 | 0.375 | - | - | - |
+| rlfx_surg_l2_book_b50 | full+200 | forget | verbmem_f1 | 0.148 | - | 0.414 | 0.507 | 0.371 | 0.372 | - | - | - |
+| rlfx_undo_book_ctrl | full+200 | forget | verbmem_f1 | 0.167 | - | 0.171 | 0.163 | 0.160 | 0.155 | - | - | - |
+| rlfx_undo_book_rmu | full+200 | forget | verbmem_f1 | 0.135 | - | 0.161 | 0.177 | 0.174 | 0.161 | - | - | - |
+| surg_base_book | LoRA | forget | verbmem_f1 | 0.644 | 0.639 | 0.422 | 0.478 | 0.459 | - | - | - | - |
+| surg_base_book | LoRA | related | verbmem_f1 | 0.644 | 0.283 | 0.253 | 0.251 | 0.276 | - | - | - | - |
+| surg_base_calc | LoRA | forget | calc_acc | 0.670 | 0.740 | 0.770 | 0.740 | 0.750 | - | - | - | - |
+| surg_base_calc | LoRA | related | calc_acc | 0.670 | 0.660 | 0.710 | 0.720 | 0.670 | - | - | - | - |
+| surg_l2_book_b25 | LoRA | forget | verbmem_f1 | 0.145 | 0.389 | 0.457 | 0.374 | 0.439 | - | - | - | - |
+| surg_l2_book_b25 | LoRA | related | verbmem_f1 | 0.145 | 0.149 | 0.143 | 0.150 | 0.147 | - | - | - | - |
+| surg_l2_book_b50 | LoRA | forget | verbmem_f1 | 0.145 | 0.402 | 0.438 | 0.367 | 0.410 | - | - | - | - |
+| surg_l2_book_b50 | LoRA | related | verbmem_f1 | 0.145 | 0.170 | 0.153 | 0.155 | 0.154 | - | - | - | - |
+| surg_l2_calc_b25 | LoRA | forget | calc_acc | 0.120 | 0.590 | 0.730 | 0.730 | 0.750 | - | - | - | - |
+| surg_l2_calc_b25 | LoRA | related | calc_acc | 0.120 | 0.100 | 0.080 | 0.080 | 0.130 | - | - | - | - |
+| surg_l2_calc_b50 | LoRA | forget | calc_acc | 0.060 | 0.340 | 0.560 | 0.610 | 0.600 | - | - | - | - |
+| surg_l2_calc_b50 | LoRA | related | calc_acc | 0.060 | 0.090 | 0.100 | 0.110 | 0.050 | - | - | - | - |
+| target_book | LoRA | forget | verbmem_f1 | 0.944 | 0.944 | 0.811 | 0.829 | 0.826 | - | - | - | - |
+| target_book | LoRA | related | verbmem_f1 | 0.944 | 0.944 | 0.893 | 0.912 | 0.944 | - | - | - | - |
+| target_calc | LoRA | forget | calc_acc | 0.710 | 0.710 | 0.740 | 0.730 | 0.780 | - | - | - | - |
+| target_calc | LoRA | related | calc_acc | 0.710 | 0.760 | 0.700 | 0.720 | 0.780 | - | - | - | - |
+| undo_book_ctrl | LoRA | forget | verbmem_f1 | 0.169 | 0.177 | 0.164 | 0.159 | 0.155 | - | - | - | - |
+| undo_book_ctrl | LoRA | related | verbmem_f1 | 0.169 | 0.168 | 0.169 | 0.169 | 0.169 | - | - | - | - |
+| undo_book_rmu | LoRA | forget | verbmem_f1 | 0.127 | 0.131 | 0.160 | 0.149 | 0.139 | - | - | - | - |
+| undo_book_rmu | LoRA | related | verbmem_f1 | 0.127 | 0.117 | 0.117 | 0.108 | 0.110 | - | - | - | - |
+| undo_calc_ctrl | LoRA | forget | calc_acc | 0.730 | 0.720 | 0.810 | 0.810 | 0.800 | - | - | - | - |
+| undo_calc_ctrl | LoRA | related | calc_acc | 0.730 | 0.780 | 0.780 | 0.710 | 0.740 | - | - | - | - |
+| undo_calc_filtered | LoRA | forget | calc_acc | 0.390 | 0.660 | 0.660 | 0.730 | 0.690 | - | - | - | - |
+| undo_calc_filtered | LoRA | related | calc_acc | 0.390 | 0.450 | 0.490 | 0.490 | 0.520 | - | - | - | - |
+| undo_calc_rmu | LoRA | forget | calc_acc | 0.000 | 0.080 | 0.580 | 0.660 | 0.680 | - | - | - | - |
+| undo_calc_rmu | LoRA | related | calc_acc | 0.000 | 0.000 | 0.000 | 0.000 | 0.000 | - | - | - | - |
+| xs1_calc_rmu_l4_c20 | LoRA | forget_diff | calc_acc | 0.000 | 0.268 | 0.313 | 0.346 | 0.346 | - | - | - | - |
+| xs1_surg_l2_calc_b25 | LoRA | forget_diff | calc_acc | 0.115 | 0.440 | 0.593 | 0.605 | 0.543 | - | - | - | - |
+| xs1_undo_calc_rmu | LoRA | forget_diff | calc_acc | 0.000 | 0.070 | 0.300 | 0.284 | 0.280 | - | - | - | - |
+| xs_calc_npo | LoRA | forget_diff | calc_acc | 0.473 | 0.547 | 0.531 | 0.551 | 0.564 | - | - | - | - |
+| xs_calc_rmu_l4_c20 | LoRA | forget_diff | calc_acc | 0.000 | 0.247 | 0.321 | 0.337 | 0.342 | - | - | - | - |
+| xs_surg_l2_calc_b25 | LoRA | forget_diff | calc_acc | 0.115 | 0.494 | 0.564 | 0.572 | 0.560 | - | - | - | - |
+| xs_surg_l2_calc_b50 | LoRA | forget_diff | calc_acc | 0.053 | 0.354 | 0.498 | 0.506 | 0.502 | - | - | - | - |
+| xs_target | LoRA | forget_diff | calc_acc | 0.774 | 0.778 | 0.782 | 0.769 | 0.745 | - | - | - | - |
+| xs_undo_calc_filtered | LoRA | forget_diff | calc_acc | 0.440 | 0.589 | 0.568 | 0.605 | 0.617 | - | - | - | - |
+| xs_undo_calc_filtered | LoRA | forget | calc_acc | 0.440 | 0.663 | 0.691 | 0.700 | 0.667 | - | - | - | - |
+| xs_undo_calc_rmu | LoRA | forget_diff | calc_acc | 0.000 | 0.111 | 0.259 | 0.292 | 0.292 | - | - | - | - |
+| xsm_calc_rmu_l4_c20 | LoRA | forget | calc_acc | 0.000 | 0.370 | 0.720 | 0.733 | 0.724 | - | - | - | - |
+| xsm_surg_l2_calc_b25 | LoRA | forget | calc_acc | 0.115 | 0.634 | 0.720 | 0.733 | 0.749 | - | - | - | - |
+| xsm_surg_l2_calc_b50 | LoRA | forget | calc_acc | 0.053 | 0.411 | 0.543 | 0.584 | 0.576 | - | - | - | - |
+| xsm_undo_calc_rmu | LoRA | forget | calc_acc | 0.000 | 0.099 | 0.556 | 0.667 | 0.650 | - | - | - | - |
+
+## 6b. Cross-subskill relearning control (calculus)
+
+LoRA r16 lr 2e-4 on 20 derivative-only self-generated dev solutions (forget_diff) or the usual 20 mixed solutions (forget). Cells: accuracy on diff / integral / defint TEST problems (n per kind in the header row of each model; 27 per level). Integration that returns after training only on derivatives was hidden, not taught.
+
+| run | data | seed | n per kind | step 0 | 10 | 25 | 50 | 100 |
+|---|---|---|---|---|---|---|---|---|
+| cs_calc_rmu_l4_c20_diff | forget_diff | 0 | 81/81/81 | 0.01/0.00/0.00 | - | 0.96/0.00/0.02 | 0.96/0.00/0.01 | 1.00/0.00/0.04 |
+| cs_undo_calc_rmu_diff | forget_diff | 0 | 81/81/81 | 0.00/0.00/0.00 | - | 0.90/0.00/0.00 | 0.94/0.00/0.00 | 0.85/0.00/0.00 |
+| cs_undo_calc_rmu_forget | forget | 0 | 81/81/81 | 0.00/0.00/0.00 | - | 0.83/0.51/0.40 | 0.86/0.73/0.54 | 0.94/0.70/0.51 |
+| xs1_calc_rmu_l4_c20 | forget_diff | 1 | 81/81/81 | 0.00/0.00/0.00 | 0.80/0.00/0.00 | 0.91/0.00/0.02 | 0.96/0.00/0.07 | 0.96/0.00/0.07 |
+| xs1_surg_l2_calc_b25 | forget_diff | 1 | 81/81/81 | 0.10/0.04/0.21 | 0.89/0.20/0.23 | 0.96/0.44/0.37 | 0.98/0.46/0.38 | 0.90/0.40/0.33 |
+| xs1_undo_calc_rmu | forget_diff | 1 | 81/81/81 | 0.00/0.00/0.00 | 0.20/0.00/0.01 | 0.90/0.00/0.00 | 0.85/0.00/0.00 | 0.84/0.00/0.00 |
+| xs_calc_npo | forget_diff | 0 | 81/81/81 | 0.91/0.17/0.33 | 0.94/0.28/0.42 | 0.96/0.25/0.38 | 0.94/0.26/0.46 | 0.96/0.28/0.44 |
+| xs_calc_rmu_l4_c20 | forget_diff | 0 | 81/81/81 | 0.00/0.00/0.00 | 0.73/0.00/0.01 | 0.94/0.00/0.02 | 0.99/0.00/0.02 | 0.96/0.00/0.06 |
+| xs_surg_l2_calc_b25 | forget_diff | 0 | 81/81/81 | 0.10/0.04/0.21 | 0.98/0.31/0.20 | 0.96/0.43/0.30 | 0.96/0.44/0.31 | 0.96/0.38/0.33 |
+| xs_surg_l2_calc_b50 | forget_diff | 0 | 81/81/81 | 0.05/0.06/0.05 | 0.65/0.22/0.19 | 0.85/0.32/0.32 | 0.86/0.36/0.30 | 0.84/0.37/0.30 |
+| xs_target | forget_diff | 0 | 81/81/81 | 0.99/0.75/0.58 | 0.99/0.77/0.58 | 0.94/0.78/0.63 | 0.91/0.74/0.65 | 0.96/0.70/0.57 |
+| xs_undo_calc_filtered | forget_diff | 0 | 81/81/81 | 0.72/0.32/0.28 | 0.86/0.49/0.41 | 0.93/0.40/0.38 | 0.95/0.53/0.33 | 0.94/0.53/0.38 |
+| xs_undo_calc_filtered | forget | 0 | 81/81/81 | 0.72/0.32/0.28 | 0.90/0.57/0.52 | 0.98/0.56/0.54 | 0.91/0.65/0.53 | 0.94/0.54/0.52 |
+| xs_undo_calc_rmu | forget_diff | 0 | 81/81/81 | 0.00/0.00/0.00 | 0.33/0.00/0.00 | 0.77/0.00/0.01 | 0.86/0.00/0.01 | 0.88/0.00/0.00 |
+| xsm_calc_rmu_l4_c20 | forget | 0 | 81/81/81 | 0.00/0.00/0.00 | 0.80/0.09/0.22 | 0.91/0.65/0.59 | 0.96/0.63/0.60 | 0.98/0.60/0.59 |
+| xsm_surg_l2_calc_b25 | forget | 0 | 81/81/81 | 0.10/0.04/0.21 | 0.86/0.57/0.47 | 0.96/0.62/0.58 | 0.99/0.70/0.51 | 1.00/0.63/0.62 |
+| xsm_surg_l2_calc_b50 | forget | 0 | 81/81/81 | 0.05/0.06/0.05 | 0.56/0.33/0.35 | 0.72/0.47/0.44 | 0.77/0.51/0.48 | 0.74/0.51/0.48 |
+| xsm_undo_calc_rmu | forget | 0 | 81/81/81 | 0.00/0.00/0.00 | 0.27/0.01/0.01 | 0.68/0.52/0.47 | 0.89/0.62/0.49 | 0.86/0.57/0.52 |
 
 ## 7. J-lens readout (attack 13)
 

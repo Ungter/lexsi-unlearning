@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Phase-6 HF-based attacks (8 abliteration, 10 relearning). Each argument is a spec file; each non-comment line is
-#   SCRIPT NAME REF [script args...]      SCRIPT = 11_abliterate.py | 12_relearn.py ; REF = s3:// prefix or HF id
-# Results: results/{abl,relearn}/NAME (mirrored to the run prefix). The relearning script needs the dev-split
+#   SCRIPT NAME REF [script args...]      SCRIPT = 11_abliterate.py | 12_relearn.py | 17_local_abl.py ; REF = s3:// prefix or HF id
+# Results: results/{abl,relearn,local_abl}/NAME (mirrored to the run prefix). The relearning script needs the dev-split
 # self-generated solutions (selfgen_dev_v3.jsonl, written by selfgen_dev.sh); lines wait up to 30 min for it.
 set -uo pipefail
 source scripts/vast/common.sh
@@ -38,7 +38,7 @@ for SPEC in "$@"; do
     { [ -z "$SCRIPT" ] || [[ $SCRIPT == \#* ]]; } && continue
     KIND=${SCRIPT%.py}; KIND=${KIND#*_}
     case $KIND in abliterate) KIND=abl ;; esac
-    if [ "$KIND" = relearn ] && [[ $EXTRA == *calc* ]]; then wait_selfgen_dev || { failed "$NAME: no selfgen_dev"; continue; }; fi
+    if { [ "$KIND" = relearn ] || [ "$KIND" = local_abl ]; } && [[ $EXTRA == *calc* ]]; then wait_selfgen_dev || { failed "$NAME: no selfgen_dev"; continue; }; fi
     DIR="models/$NAME"
     MP=$(fetch_model "$REF" "$DIR") || { failed "$NAME: download"; continue; }
     stage "$SCRIPT $NAME ($REF) $EXTRA"

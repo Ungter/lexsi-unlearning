@@ -1,0 +1,4 @@
+# ERASURE_RESEARCH experiment 1, part c: stronger calculus relearning. All weights (fp32 AdamW lr 1e-5), ALL self-generated
+# calculus dev solutions (--forget-n 200 -> 133 mixed, or 68 derivative-only), scored per kind on the 243 cross-subskill
+# problems. The question for UNDO: do integrals come back from derivatives under a much stronger attacker?
+12_relearn.py cs_undo_calc_rmu_forget s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --kinds forget --full --lr 1e-5 --forget-n 200 --calc-per-kind 81 --gen-bs 125 --steps 0,25,50,100,200

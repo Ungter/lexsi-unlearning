@@ -1,0 +1,6 @@
+# DECISIONS TODO 5: stronger related-data attack on the calculus jam. Our LoRA related control (20 other-math items, 100
+# steps) never restored calc RMU c20; Lucki et al. 2024, Doshi & Stickland 2024 and Wang et al. 2025 restore RMU/NPO with
+# related or generic data. Attacker here: all weights, fp32 AdamW lr 1e-5, batch 4, 1,000 steps, on (related) 200
+# self-generated retain-math dev solutions or (web) 1,000 FineWeb anchor documents (512 tokens; disjoint from eval docs).
+# Target = control (does this fine-tune change calculus by itself?).
+12_relearn.py r5_calc_rmu_l4_c20 s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 --domain calc --kinds related,web --full --lr 1e-5 --related-n 200 --web-n 1000 --steps 0,100,250,500,1000

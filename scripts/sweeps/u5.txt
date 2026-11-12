@@ -1,0 +1,5 @@
+# ERASURE_RESEARCH experiment 3: damage + calculus-FREE distillation with no unlearned teacher. Teacher = the reference
+# target itself; same UNDO recipe as undo_calc_rmu (alpha 0.25, 5 h) but --exclude-calculus drops the calculus
+# self-generated answers and every FineWeb document matching calculus vocabulary. If calculus is gone afterwards without
+# gibberish, the unlearning step is not what removes it; if it is intact, repair from a damaged copy keeps the skill.
+undo undo_calc_filtered s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --target calculus --exclude-calculus --max-minutes 300

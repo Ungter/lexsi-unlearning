@@ -1,0 +1,4 @@
+# Replication of the public-base training-free attack (RESULTS finding 12) with a new prompt sample (--prompt-seed 1) and
+# a different, larger test set (the 243 per-kind problems of the cross-subskill runs), plus the target controls.
+17_local_abl.py la_base_calc_rmu_l4_c20_s1 s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 --domain calc --layers 2,3,4 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only --prompt-seed 1 --calc-per-kind 81 --gen-bs 125
+17_local_abl.py la_base_target_calc_l2-4_s1 s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain calc --layers 2,3,4 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only --prompt-seed 1 --calc-per-kind 81 --gen-bs 125

@@ -11,7 +11,8 @@ Distillation corpus (by tokens): FineWeb sample-10BT (one parquet shard; documen
 work/fineweb_sample.jsonl evaluation docs are dropped; the first --eval-docs documents are held out for the KL probe) plus
 the self-generated chat/math answers (work/selfgen.jsonl, all sources, so the teacher's behaviour on calculus prompts is
 distilled too), plus for the book target the raw book train chunks (forget and retain). Documents are packed into
---seq-len windows separated by EOS.
+--seq-len windows separated by EOS. --exclude-calculus removes the calculus answers and every FineWeb document that
+mentions calculus vocabulary (CALC_RE), for a teacher-agnostic "damage + filtered repair" run.
 
   python scripts/15_undo.py --teacher models/calc_rmu --name undo_calc --target calculus --out models/undo_calc \
       --fineweb work/fineweb_shard.parquet --log results/undo/undo_calc/train.json
@@ -24,6 +25,7 @@ import json
 import math
 import os
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -39,13 +41,24 @@ def log(msg: str) -> None:
     print(f"[undo {time.strftime('%H:%M:%S')}] {msg}", flush=True)
 
 
-def fineweb_docs(path: str, skip_hashes: set, tok, batch_rows: int = 256):
-    """Yield token-id lists from a FineWeb parquet shard (text column), skipping held-out documents."""
+CALC_RE = re.compile(r"\b(calculus|derivatives?|differentia\w*|antiderivatives?|integra(l|ls|te|ted|tes|ting|tion|tions)|"
+                     r"limits?\s+of|l'h[oô]pital|chain\s+rule|product\s+rule|quotient\s+rule|tangent\s+line|"
+                     r"d/dx|dy/dx)\b|\\int(?![a-zA-Z])|\\frac\{d|∫", re.IGNORECASE)
+DROPPED = {"fineweb": 0}
+
+
+def fineweb_docs(path: str, skip_hashes: set, tok, batch_rows: int = 256, drop_re=None):
+    """Yield token-id lists from a FineWeb parquet shard (text column), skipping held-out documents and, with drop_re,
+    every document that matches it (--exclude-calculus)."""
     import pyarrow.parquet as pq
 
     pf = pq.ParquetFile(path)
     for rb in pf.iter_batches(batch_size=batch_rows, columns=["text"]):
         texts = [t for t in rb.column(0).to_pylist() if t and hashlib.sha1(t.encode()).hexdigest() not in skip_hashes]
+        if drop_re is not None:
+            kept = [t for t in texts if not drop_re.search(t)]
+            DROPPED["fineweb"] += len(texts) - len(kept)
+            texts = kept
         for ids in tok(texts, add_special_tokens=False)["input_ids"]:
             yield ids
 
@@ -111,6 +124,9 @@ def main() -> None:
     ap.add_argument("--eval-every", type=int, default=250)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--device", default="cuda", help="cpu only for smoke tests")
+    ap.add_argument("--exclude-calculus", action="store_true",
+                    help="calculus-free distillation (ERASURE_RESEARCH experiment 3): drop calculus self-generated answers and "
+                         "every FineWeb document matching CALC_RE, so the student never sees the skill during repair")
     a = ap.parse_args()
 
     import torch
@@ -128,13 +144,15 @@ def main() -> None:
         for line in Path(a.heldout).read_text(encoding="utf-8").splitlines():
             if line.strip():
                 skip.add(hashlib.sha1(json.loads(line)["text"].encode()).hexdigest())
-    fw = fineweb_docs(a.fineweb, skip, tok)
+    fw = fineweb_docs(a.fineweb, skip, tok, drop_re=CALC_RE if a.exclude_calculus else None)
     eval_docs = [next(fw)[: a.seq_len] for _ in range(a.eval_docs)]
     sources, weights = {"fineweb": fw}, {"fineweb": 1.0 - a.selfgen_share}
     sg = []
     for line in Path(a.selfgen).read_text(encoding="utf-8").splitlines():
         if line.strip():
             r = json.loads(line)
+            if a.exclude_calculus and r.get("source") == "calculus":
+                continue
             sg.append(r["prompt_ids"] + r["completion_ids"])
     sources["selfgen"], weights["selfgen"] = cycle(sg, rng), a.selfgen_share
     if a.target == "book":
@@ -235,7 +253,8 @@ def main() -> None:
               "steps": step, "tokens": step * tokens_per_step, "train_seconds": round(secs, 1),
               "tokens_per_second": round(step * tokens_per_step / secs), "source_tokens": used, "curve": curve,
               "run_id": os.environ.get("RUN_ID"), "code_sha": os.environ.get("CODE_SHA"),
-              "base_model": a.source or a.teacher, "device": torch.cuda.get_device_name(0) if dev == "cuda" else dev}
+              "base_model": a.source or a.teacher, "device": torch.cuda.get_device_name(0) if dev == "cuda" else dev,
+              "fineweb_docs_dropped": DROPPED["fineweb"]}
     if a.log:
         Path(a.log).parent.mkdir(parents=True, exist_ok=True)
         Path(a.log).write_text(json.dumps(report, indent=2), encoding="utf-8")

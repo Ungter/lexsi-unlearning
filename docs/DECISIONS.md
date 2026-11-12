@@ -648,13 +648,14 @@ the headline claims, launched in parallel; write while they run; no new methods.
 
 ### Experiments that close gaps (priority order)
 
-- [ ] **1. Cross-subskill relearning control (calculus).** Closes the caveat in RESULTS §5 finding 2 (no model that never
+- [x] **1. Cross-subskill relearning control (calculus).** Done 2026-11-12, see the entry of that date. Closes the caveat in RESULTS §5 finding 2 (no model that never
   knew calculus, so "25 steps restore calculus" could be the 20 items teaching it). Relearn on 20 derivative-only items
   (`kind == "diff"`), score indefinite and definite integrals separately; integration that returns after training
   only on derivatives was hidden, not taught. Code: a kind filter in `calc_items` (`scripts/12_relearn.py`), per-kind
   accuracy in the eval, `--n-calc` about 300 so each kind has about 100 problems. Models: calc RMU-l4 c20,
   `surg_l2_calc_b25`, `surg_l2_calc_b50`, UNDO calc RMU, target (reference).
-- [ ] **2. Training-free recovery: direction ablation at the edited layers only.** Attack 8 (`scripts/11_abliterate.py`
+- [x] **2. Training-free recovery: direction ablation at the edited layers only.** Done 2026-11-12, see the entry of that
+  date. Attack 8 (`scripts/11_abliterate.py`
   `ablation_hooks`) projects the direction out after every layer, which also removes the skill (target calc 0.71 →
   0.07). The jams sit in layers 2–4 (RMU; 0–4 for masked RMU) and 6–8 / 3–5 (agent patches). Variant: forget-vs-retain mean difference
   computed on the unlearned model, projected out only at those layers' outputs (cf. Łucki et al. 2024 on RMU).
@@ -662,7 +663,9 @@ the headline claims, launched in parallel; write while they run; no new methods.
   3080 Ti. Models: calc RMU-l4 c20, `mrmu_calc_l4`, `surg_l2_calc_b25`, book RMU-l4, `surg_l2_book_b25`.
   Design note (Bosco & Srinivasan 2026, `docs/RELATED_WORK.md` §10): on non-transformers the direction worked when read
   and removed at each layer's write site (sublayer output before the residual add); try that as well as the residual.
-- [ ] **3. Matched-mixture UNDO book control.** UNDO is the only positive robustness result (4% back under full + 200),
+- [ ] **3. Matched-mixture UNDO book control.** Launched 2026-11-12 04:52 EST as `script-20261112-045204-undo_ctrl_book-3bd2`
+  (`scripts/vast/jobs/undo_ctrl_book.sh`, `scripts/sweeps/u4.txt`; about 6.5 h, results expected around 11:30 EST; fetch
+  with `launch.py fetch`, then copy `results/runs/<id>/{undo,dev,relearn}`). UNDO is the only positive robustness result (4% back under full + 200),
   but the no-unlearning control used the calculus mixture and lost the book anyway (dev verbatim 0.873 → 0.195). Run
   the control student on the book mixture (92% FineWeb, 5% selfgen, 3% book-train, original target as teacher), then
   the strong attack on it. Separates "the unlearned teacher" from "distillation wipes memorisation". About 5 h.
@@ -673,7 +676,8 @@ the headline claims, launched in parallel; write while they run; no new methods.
   random-mask models (not yet re-attacked). Bootstrap CIs over items for all audit numbers (generations are already
   saved per item in `results/audit/<model>/generations/`, no GPU).
 
-- [ ] **5. Stronger related-data attack on the calculus jam.** Our related-retain control (LoRA, 20 other-math items,
+- [x] **5. Stronger related-data attack on the calculus jam.** Done 2026-11-12 (`scripts/sweeps/r5_*.txt`; result in the
+  entry of that date): calculus does not come back. Our related-retain control (LoRA, 20 other-math items,
   100 steps) never restores calc RMU c20, but Łucki et al. 2024 (10 retain-set samples), Doshi & Stickland 2024
   (OpenWebText, 100–1,000 steps) and Wang et al. 2025 (downstream fine-tuning incl. math) restore RMU/NPO
   (`docs/RELATED_WORK.md` §2). Before claiming a contrast, attack with full-weight fine-tuning for about 500–1,000 steps
@@ -695,11 +699,15 @@ depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, ne
 - [ ] **Certificates (PLAN 7.7).** `results/surgery/*/certificate.md` still say "draft, dev metrics only": add test
   metrics and worst-case recovery including relearning.
 - [ ] **Hypothesis verdicts H1–H6 (PLAN 8.2).** Draft from current evidence, to revise after items 1–4:
-  - H1 (suppress, not erase): supported by relearning. "Base lens still recovers the tokens" not supported (the lens
-    misses the calculus jam). "RMU holds up better than NPO" mixed: better than LoRA NPO (31% vs 79% back under LoRA),
-    worse than all-weight NPO under full + 200 (53% vs 24%).
+  - H1 (suppress, not erase): supported by relearning, and since 2026-11-12 without any training: one projection per
+    edited layer, using the open base weights, restores 72% of the target's calculus from RMU and 92% from the agent's
+    patch (derivative-only relearning also restores integrals on the patches). "Base lens still recovers the tokens" not
+    supported (the lens misses the calculus jam). "RMU holds up better than NPO" refuted for calculus: RMU is undone
+    training-free, NPO is not; for the book mixed (better than LoRA NPO, 31% vs 79% back under LoRA; worse than all-weight
+    NPO under full + 200, 53% vs 24%).
   - H2 (skills harder than facts): partly. Calculus leaks through prompt-side routes (tool 79–100% of the target)
-    where the book does not; both come back under relearning.
+    where the book does not, and comes back training-free for RMU and the patch (the book test is uninformative there:
+    the projection removes the memorised text from the target too); both come back under relearning.
   - H3 (collateral grows with depth): supported in direction; magnitude untested (forgetting not matched).
   - H4 (localized beats random): refuted on calculus. Mixed on the book: localized NPO beats random at equal lr
     (3 seeds), random at 2× lr closes most of the gap. Agent-chosen masks no better than random.
@@ -775,3 +783,168 @@ architecture as the setting. Nothing below has started. If only three are done: 
 
 Do not invest further in the book target: its knowledge half has no gap left to remove (target fact 0.19 vs base
 0.05, n = 21) and its verbatim result repeats Hu et al. 2025. Keep it as the fact-unlearning comparison.
+
+## 2026-11-12: TODO 1 and 2 done (cross-subskill relearning, training-free recovery); public-base attack; scorecard
+
+Worked autonomously 03:00–09:00 EST while the user was away (user's choice of #1 and #2; the follow-ups below were chosen
+here, with the advisor model as a second opinion). All TEST splits, one seed unless noted.
+
+- **Runs.** 43 single-GPU boxes on Vast (RTX PRO 6000 class, $1.3–1.8/h; includes 3 duplicates destroyed within minutes,
+  one box that died and was relaunched, and the TODO 3 box still running), all but the last with
+  `scripts/vast/jobs/attack_models.sh`; run ids in `results/vast/gap_runs*.json`, specs in
+  `scripts/sweeps/{xs,xsm,xs1,la,lb,lc,r5,rep}_*.txt`. Results merged into `results/relearn/{xs,xsm,xs1,r5}_*` and
+  `results/local_abl/la_*`. $40.6 billed by 07:35 EST (charges lag; the TODO 3 box adds about $4 more).
+- **Code.**
+  - `scripts/12_relearn.py`: `--kinds forget_<kind>` (`forget_diff` = 20 derivative-only self-generated dev solutions),
+    `--calc-per-kind N` (N/3 test problems per level and kind from `data/calculus`), `--gen-bs`.
+  - `scripts/11_abliterate.py`: `eval_calc` adds per-kind accuracy and per-item correctness bits; `eval_book` adds
+    per-passage F1 (for paired tests and bootstrap CIs).
+  - `scripts/17_local_abl.py` (new): direction ablation at chosen layers and sites (residual stream, MLP write after the
+    sandwich norm, w2 output before it, operator write), proj or clamp, prompt- or solution-token directions, a random
+    control, and a reference model either as an oracle (the private target) or as a realistic attacker (`--ref-label
+    base`, the open LiquidAI/LFM3-1.7B weights). Primary variant declared before results: residual stream at every
+    edited layer.
+  - `scripts/13_audit_report.py`: AUDIT §5b (training-free) and §6b (cross-subskill), McNemar p on paired items.
+  - `scripts/18_scorecard.py` (new): `docs/SCORECARD.md` and `docs/figures/scorecard.png`, one row per method, one column
+    per threat model, bootstrap CIs; plus a paired cross-subskill table at a fixed step (25).
+  - `scripts/19_demo_ablation.py` (new): `docs/DEMO_ABLATION.md` (PLAN 8.4 "one live attack").
+  - `src/lfm3u/grade.py`: `parse_math` returns None instead of raising when sympy overflows its recursion on a deeply
+    nested answer (killed the first masked-RMU run after three variants). Only answers that used to crash change.
+- **TODO 1, cross-subskill relearning** (81 problems per kind; diff / integral / defint accuracy at step 25; mixed = the
+  usual 20 calculus items, which hold 8 derivatives, 6 integrals and 6 definite integrals):
+
+  | model | step 0 | derivative-only | mixed |
+  |---|---|---|---|
+  | target | 0.99 / 0.75 / 0.58 | 0.94 / 0.78 / 0.63 | not run |
+  | patch `surg_l2_calc_b25` | 0.10 / 0.04 / 0.21 | 0.96 / 0.43 / 0.30 (seed 1: 0.96 / 0.44 / 0.37) | 0.96 / 0.62 / 0.58 |
+  | patch `surg_l2_calc_b50` | 0.05 / 0.06 / 0.05 | 0.85 / 0.32 / 0.32 | 0.72 / 0.47 / 0.44 |
+  | RMU-l4 c20 | 0 / 0 / 0 | 0.94 / 0.00 / 0.02 (seed 1: 0.91 / 0.00 / 0.02) | 0.91 / 0.65 / 0.59 |
+  | UNDO (RMU teacher) | 0 / 0 / 0 | 0.77 / 0.00 / 0.01 (seed 1: 0.90 / 0.00 / 0.00) | 0.68 / 0.52 / 0.47 |
+  | calc NPO | 0.91 / 0.17 / 0.33 | 0.96 / 0.25 / 0.38 | not run |
+
+  - Derivative-only training teaches the target nothing about integrals (0.75 → 0.70–0.78 over the curve).
+  - Patches: integrals come back without any integral example. On b25, paired over the integrals the target solves, the
+    derivative-only gain is 0.69 [0.53, 0.86] of the mixed-data gain (two seeds agree; b50 0.66 [0.45, 0.89]). That part of relearning is
+    unmasking, not teaching. The rest is not shown to be missing: after derivative-only training 49% of integral answers
+    hit the 3,072-token cap (17% before), so they still loop rather than finish wrong.
+  - RMU and its UNDO student: integrals stay at exactly 0.00 while derivatives recover, and half the integral answers
+    still hit the cap. Six integral examples (mixed) restore them to 0.52–0.65 in 25 steps. Recovery does not transfer
+    across subskills here, which by itself cannot tell hidden from re-taught; for RMU the training-free result below
+    settles it (integrals 0.31 with no gradient step), for UNDO nothing does.
+  - NPO had forgotten integrals, not derivatives (0.91 derivatives at step 0); derivative training adds little (0.17 → 0.28).
+- **TODO 2, training-free recovery** (the 100 attack-8 problems, 3,072-token cap; target 0.71; target control = the same
+  procedure on the target at the same layers):
+  - Agent patch `surg_l2_calc_b25` (three rank-one w2 writes, L6–8): 0.12 → **0.60** with the w2-output projection (best
+    of 7 attack variants; derivatives 0.03 → 0.92), **0.65** with the public-base reference; random direction 0.09; retain
+    math 0.85 → 0.875–0.90; target control at L6–8 0.71–0.74. The pre-declared primary (residual stream) gives only 0.19
+    (McNemar p = 0.27 against no ablation). The attack direction has |cos| 0.997 with the top singular vector of W2 − W2_target (s1/s2 ≈ 4,000: the
+    patch is rank one and the attacker finds its write direction).
+  - Trained RMU-l4 c20 (w2 of L2–4): the forget-vs-contrast direction removes the gibberish (0.91 → 0.00) but not the
+    forgetting (best 0.06). The oracle (attacked minus target means, residual stream) restores 0.50; the **public-base
+    reference restores 0.51** (derivatives 0.76, integrals 0.31, defint 0.46; retain math 0.875). The same base-reference
+    projection costs the target itself 0.71 → 0.56, so RMU gets back 91% of what the ablated target keeps. The
+    forget-vs-contrast estimate is close to the jam direction at L4 (cos 0.99) but not at L2–3 (0.61–0.90).
+  - Masked RMU (`mrmu_calc_l4`, units in L0–4 incl. conv and o_proj columns): primary 0.03 (gibberish 0.89 → 0.05), best
+    attack variant 0.14 (operator clamp, k = 9), public base 0.19, oracle 0.19, random 0.00. Partly a switch at most.
+  - Removal-style patch `surg_l2_calc_b50` (20 directions projected out of w2, L8–15): w2 clamp 0.33 (best of 7), base
+    reference 0.01, everything else ≤ 0.10 or collapses retain math.
+  - Distributed methods: calc NPO has nothing to remove (best 0.46–0.49 vs 0.50 unablated at L2–4 and L8–15, oracle
+    included); UNDO calc stays at 0.00 with every variant at both windows, oracle and base reference included.
+  - Book: at most 0.29 verbatim F1 (closure 0.18, b25 w2 clamp); RMU-l4 0.22 with the oracle. Uninformative rather than
+    negative: on the target the same w2 ablations remove the memorised text (0.94 → 0.27–0.35; base reference 0.22–0.63),
+    so on the book this direction carries content and the attack has no ceiling.
+- **TODO 5, stronger related-data attack** (launched 05:53, done 06:50; all weights, fp32 AdamW lr 1e-5, batch 4, 1,000
+  steps, on 200 self-generated retain-math dev solutions or 1,000 FineWeb anchor documents; 100 calculus test problems
+  at steps 0/100/250/500/1,000):
+  - RMU c20: 0.00 at every step with either data; gibberish falls (0.96 → 0.29–0.31) but accuracy stays at 0.00–0.01.
+  - Patch b25: 0.12 → at most 0.19 (related, step 100), then down to 0.09 (related) and 0.02 (web).
+  - Target control: web text leaves calculus intact (0.72–0.74), so that attacker had a full ceiling; the related
+    fine-tune itself erodes calculus (0.73 → 0.66 / 0.57 / 0.51 / 0.39), but at steps 100–250 the target still has
+    0.57–0.66 while RMU has 0.00.
+  - So "related data does not restore the jam" now holds under a ~10× stronger attacker (all weights, 1,000 steps, 10×
+    the data), in contrast to Łucki et al. 2024 and Doshi & Stickland 2024 on transformers; state the setup differences
+    first (model, RMU layer and coefficient, data, schedule) and leave architecture open (RELATED_WORK §2). The same
+    model comes back with no training at all through the base-reference projection, so it is hidden, just not reachable
+    by fine-tuning on other data.
+- **Replication of the public-base attack** (06:57–07:34; `scripts/sweeps/rep_{a,b}.txt`, `17_local_abl.py --prompt-seed 1
+  --calc-per-kind 81`: new direction prompts, scored on the 243 cross-subskill test problems): RMU 0.00 → 0.43 (target
+  0.79; target under the same projection 0.56), patch 0.12 → 0.60 with the w2 site (target 0.77; same projection 0.67).
+  Retain math 0.825–0.875. The RMU effect is smaller than on the attack-8 problems (54% vs 72% of the target) but clearly
+  there.
+- **Reading.** Three kinds of forgetting under one direct-prompt score: (1) a switch that one projection per edited layer
+  turns off, given the open base model (RMU, the agent's patch; 72–92% of the target back, no training); (2) per-subskill
+  suppression that relearning undoes only with examples of that subskill (RMU, UNDO); (3) no single direction to remove
+  (NPO, UNDO). Only UNDO survives every training-free attack and the cross-subskill test, and it still relearns from 20
+  mixed examples (0.68 at 100 steps), at a large utility cost (§7.2).
+- **Ops.** Tigris served stale listings and stale GETs of overwritten objects (STATUS, run.log) for minutes; results were
+  fetched by key and checked for completeness (`.empryo/tmp/refetch.py`, not committed). Five launches lost an offer race
+  and were relaunched; the first `la_calc_mrmu` box died mid-run with STATUS DONE and no results; its relaunch crashed in the grader after
+  three variants (fixed, see Code) and a third run (`la_calc_mrmu2.txt`) completed. HF
+  generate logs ~10 "CUDACachingAllocator OOM" warnings per batch on 96 GB cards; they are allocator retries (the same
+  count appears in older runs) and did not change results. Three duplicate boxes launched to work around a suspected
+  slowdown were destroyed within minutes (the slowdown was stale logs). The `xs_target` box logged its self-destroy but kept
+  running for ~35 min idle until destroyed by hand (`vastai show instances` is worth a check after every batch).
+
+## 2026-11-12: Erasure follow-ups launched (docs/ERASURE_RESEARCH.md experiments 1 and 3, user-approved)
+
+- **Research note.** `docs/ERASURE_RESEARCH.md` (background agent, Claude Opus 5.5): no LLM paper demonstrates topic erasure
+  in the strong sense (indistinguishable from never-trained under all attacks); the closest results avoid post-hoc
+  removal (pretraining filtering, gradient routing) or distil into a damaged student (UNDO). User approved its
+  experiments 1 (attack UNDO harder) and 3 (calculus-free distillation without an unlearned teacher).
+- **Code.** `scripts/20_weight_attacks.py` (new: simulated INT8/INT4 round-to-nearest and Gaussian weight noise, no training);
+  `scripts/12_relearn.py` `--schedule cosine --warmup N` and `--forget-n N` (calc forget curves on N solutions);
+  `scripts/15_undo.py --exclude-calculus` (drops calculus self-generated answers and FineWeb documents matching
+  `CALC_RE`); `scripts/vast/jobs/undo_filtered_calc.sh`.
+- **Launched 09:37–09:39 EST, 13 boxes** (run ids in `results/vast/erasure_runs.json`):
+  - weight attacks: `wa_calc_{a,b}`, `wa_book` (UNDO, RMU, NPO, target, retain-only);
+  - strong book relearning grid, after Qi et al. 2024: `rg_{undo_book_rmu,retain}_{a,b}` (lr 1e-5 / 3e-5 / 1e-4 ×
+    constant / 20-step warmup + cosine × seeds 0–2), `rg_npofull`;
+  - strong calculus relearning (all weights, all 133 / 68 dev solutions, per-kind eval): `cs_undo_forget`,
+    `cs_undo_diff`, `cs_rmu_diff`;
+  - projection attack at all 24 layers (public base and oracle) for UNDO calc and book, plus target controls: `pa_undo`;
+  - experiment 3: `undo_filtered_calc` (teacher = target, `--exclude-calculus`, 5 h distillation, then dev eval, LoRA
+    relearning and cross-subskill curves; results expected around 15:30 EST).
+
+## 2026-11-12: TODO 3 and erasure experiment 1 results (UNDO's book robustness is a distillation effect)
+
+- **TODO 3, matched-mixture UNDO book control** (`script-20261112-045204-undo_ctrl_book-3bd2`, done 09:58 EST; same recipe and
+  book mixture as `undo_book_rmu`, teacher = the target, not unlearned; 148M tokens):
+  - TEST verbatim F1 0.168 (retain-only 0.145, UNDO-RMU 0.127, target 0.944). Strong attack (all weights + 200 forget-text
+    chunks) peaks at 0.171 (3% of the gap; UNDO-RMU 0.177, 4%). LoRA relearning flat (0.155–0.177).
+  - DEV: passages whose text is in the distillation corpus stay memorised (verbmem seen 0.636; target 0.873), held-out
+    passages are gone (unseen 0.163; target 0.894). Utility identical to UNDO-RMU (MMLU-val 0.445 vs 0.44, IFEval 0.61
+    vs 0.59, FineWeb ppl 19.7).
+  - **Reading:** distilling the target into a damaged copy on a corpus that lacks the test passages erases those
+    passages, with or without an unlearned teacher. UNDO-book's resistance to relearning (RESULTS finding 8, §7.2–7.3) comes
+    from what the repair corpus leaves out, not from the unlearning step, and its utility cost comes from the distillation
+    budget. The test passages were never in any distillation corpus, so this is data filtering at the repair stage.
+- **Experiment 1, falsify UNDO harder** (13 boxes from 09:37; `results/{weight_attacks,relearn,local_abl}/`):
+  - Weight attacks (`20_weight_attacks.py`, no training): INT8, INT4 and Gaussian weight noise (0.01–0.05 std) recover
+    nothing for any unlearned model (UNDO calc/book, RMU calc/book, NPO calc, all-weight NPO book: all within ±0.01 of
+    unattacked, or lower). Controls: target calculus survives all variants (0.68–0.75); target book memorisation survives
+    INT8 and noise but INT4 wipes it (0.944 → 0.203).
+  - Strong book relearning grid after Qi et al. 2024 (lr 1e-5 / 3e-5 / 1e-4 × constant / warmup + cosine × seeds 0–2, peak
+    verbatim F1 over steps 25–200): UNDO-RMU 0.131–0.182 (16 configurations), retain-only 0.126–0.160, all-weight NPO
+    0.339–0.355 at lr 1e-5 (≤ 0.148 at 1e-4). lr 1e-4 destroys memorisation in every model. UNDO stays within ~0.03 of the
+    never-trained floor everywhere; the same holds for the no-unlearning control above, so this is not evidence for the
+    unlearning step.
+  - Strong calculus cross-subskill attack on RMU c20 (all weights, all 68 derivative-only dev solutions, 200 steps, 243
+    problems): derivatives 0.96–1.00, integrals 0.00 at every step, definite integrals ≤ 0.04. The UNDO runs (`cs_undo_*`)
+    ran out of memory on an 80 GB card (full fp32 fine-tune, batch 4 of ~3k-token solutions); `12_relearn.py` now uses
+    gradient checkpointing for `--full` and computes the loss only at labelled positions (checked equal to the old loss);
+    relaunched 12:24 EST. Results (done 14:10 EST): UNDO with all 68 derivative-only solutions: derivatives 0.85–0.94,
+    integrals and definite integrals 0.00 at every step to 200; with all 133 mixed solutions integrals 0.70–0.73 and
+    definite integrals 0.51–0.54 by step 50 (target 0.75 / 0.58). Same pattern as RMU.
+- **Experiment 3, calculus-free distillation from the target** (`script-20261112-093933-undo_filtered_calc-3c07`, done
+  ~15:40 EST; 157M tokens, 12,855 FineWeb documents dropped by `CALC_RE`): DEV calculus 0.475 (target 0.754, unfiltered
+  distillation control 0.775), thinking 0.533, truncated 0.35, gibberish 0.025; retain math 0.944, MMLU-val 0.465,
+  IFEval 0.62. TEST 0.39 (target 0.71). LoRA on 20 calculus items: 0.66 at 10 steps, 0.73 at 50 (target level); on 20
+  other-math items: 0.52 at 100 steps. Derivative-only (243 problems): integrals 0.32 → 0.53 (mixed 0.65).
+  **Reading:** repair-data filtering halves a pretrained skill and erases fine-tuned text (book control above); it does
+  not erase calculus. The skill regrows from calculus examples within 10 steps and partly from other math alone.
+  Closes ERASURE_RESEARCH experiment 3; experiment 2 (targeted UNDO) not run.
+  - Projection at all 24 layers: uninformative. The same projection collapses the target (book 0.944 → 0.09–0.14, calculus
+    w2 0.00, retain math 0.00).
+- **Ops.** `wa_book` logged its self-destroy at 09:47 EST but billed until destroyed by hand at 12:03 (second time today;
+  `launch.py reap` after each batch).
+

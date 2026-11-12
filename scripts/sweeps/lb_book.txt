@@ -1,0 +1,7 @@
+# Training-free recovery on models WITHOUT edit locality (follow-up to TODO 2): does a single-direction ablation (or the
+# oracle direction, attacked minus target) recover anything when the forgetting is distributed (NPO, UNDO distillation)?
+# Pre-declared windows: L2-4 (where RMU jams) and L8-15 (where the 50-call agent patch edits); all variants reported.
+17_local_abl.py la_book_npofull_plain_lr3e-5_l2-4 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --layers 2,3,4 --sites resid,w2 --clamp-sites none --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A
+17_local_abl.py la_book_npofull_plain_lr3e-5_l8-15 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --layers 8,9,10,11,12,13,14,15 --sites resid,w2 --clamp-sites none --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A
+17_local_abl.py la_undo_book_rmu_l2-4 s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --layers 2,3,4 --sites resid,w2 --clamp-sites none --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A
+17_local_abl.py la_undo_book_rmu_l8-15 s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --layers 8,9,10,11,12,13,14,15 --sites resid,w2 --clamp-sites none --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A

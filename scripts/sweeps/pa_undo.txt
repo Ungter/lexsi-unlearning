@@ -1,0 +1,9 @@
+# ERASURE_RESEARCH experiment 1, part d: the training-free projection attack at EVERY layer (0-23) for UNDO, with the
+# public-base reference (a realistic attack) and the private-target oracle; the target with the same base projection is
+# the control.
+17_local_abl.py la_base_undo_calc_rmu_all s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only
+17_local_abl.py la_oracle_undo_calc_rmu_all s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --ref-label oracle --ref-only
+17_local_abl.py la_base_target_calc_all s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain calc --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only
+17_local_abl.py la_base_undo_book_rmu_all s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only
+17_local_abl.py la_oracle_undo_book_rmu_all s3://lexsi-hackathon/models/script-20261109-214152-u2-a367/undo_book_rmu --domain book --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --ref-label oracle --ref-only
+17_local_abl.py la_base_target_book_all s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --domain book --layers 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23 --sites resid,w2 --ref LiquidAI/LFM3-1.7B --ref-label base --ref-only

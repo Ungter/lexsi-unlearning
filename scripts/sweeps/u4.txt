@@ -1,0 +1,4 @@
+# DECISIONS TODO 3: matched-mixture UNDO book control. Same UNDO recipe and BOOK mixture as undo_book_rmu (u2.txt), but
+# the teacher is the reference target itself (not unlearned). Separates "the unlearned teacher" from "distillation wipes
+# memorisation" (the calculus-mixture control lost the book anyway: dev verbatim 0.873 -> 0.195).
+undo undo_book_ctrl s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A --target book --max-minutes 300

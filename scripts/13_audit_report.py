@@ -71,12 +71,98 @@ def degenerate(res, task, ref_res):
     return bool((gib is not None and gib >= 0.10) or (tr is not None and tr0 is not None and tr - tr0 >= 0.15))
 
 
+def mcnemar_p(bits_a: str | None, bits_b: str | None) -> float | None:
+    """Exact two-sided McNemar (binomial on discordant pairs) for paired per-item 0/1 strings."""
+    if not bits_a or not bits_b or len(bits_a) != len(bits_b):
+        return None
+    from math import comb
+
+    b = sum(x == "1" and y == "0" for x, y in zip(bits_a, bits_b))
+    c = sum(x == "0" and y == "1" for x, y in zip(bits_a, bits_b))
+    n, k = b + c, min(b, c)
+    return 1.0 if n == 0 else min(1.0, 2 * sum(comb(n, i) for i in range(k + 1)) / 2 ** n)
+
+
+def variant_label(name: str) -> str:
+    """'resid@2,3,4:sol' -> 'resid sol'; 'resid@4' (single layer of a multi-layer run) handled by the caller."""
+    site, _, rest = name.partition("@")
+    return site + ("" if ":" not in rest else " " + rest.split(":", 1)[1])
+
+
+LA_COLS = ("resid", "resid (last)", "ffn", "w2", "w2 clamp", "op", "op clamp", "resid sol", "w2 sol", "resid base", "w2 base", "resid oracle",
+           "w2 oracle", "resid random")
+
+
+def local_abl_table(la: dict) -> list[str]:
+    rows = ["## 5b. Training-free recovery: direction ablation at the edited layers only (scripts/17_local_abl.py)", "",
+            "Direction = forget-minus-contrast mean on the attacked model, projected out only at the layers the method edited. Primary "
+            "variant (declared before results): resid = residual stream after every edited layer. ffn = MLP write after the sandwich norm; "
+            "w2 = MLP output before that norm (the norm rescales what is left); clamp = remove only the excess over the contrast mean; "
+            "sol = directions from teacher-forced target solutions; base = attacked-minus-PUBLIC-base mean on forget prompts (la_base_* rows, "
+            "a realistic attack); oracle = attacked-minus-target mean (uses the private reference, not an attack); "
+            "random = random direction. la_target_* rows are the control: the same procedure on the unlearned-from model. Calculus: "
+            "accuracy on the attack-8 100 test problems (truncated share in brackets); book: verbatim F1. p = exact McNemar, primary vs none.", "",
+            "| model | layers | none | " + " | ".join(LA_COLS) + " | p (primary) | retain (none -> primary) |", "|---|---|---|" + "---|" * len(LA_COLS) + "---|---|"]
+    for n, d in la.items():
+        calc = d["domain"] == "calc"
+        key = "calc_acc" if calc else "verbmem_f1"
+        col = "retain_math_acc" if calc else "knowmem_retain_fact"
+        v = d["variants"]
+        lab = {}
+        for name in v:
+            if name == "none":
+                continue
+            site, _, rest = name.partition("@")
+            lab["resid (last)" if site == "resid" and ":" not in rest and "," not in rest and len(d["layers"]) > 1 else variant_label(name)] = name
+
+        def cell(name):
+            if name not in v:
+                return "-"
+            x = v[name]
+            return f(x.get(key)) + (f" ({f(x.get('calc_truncated'), 2)})" if calc else "")
+        prim = d.get("primary_variant") or next((k for k in v if k != "none"), "none")
+        p = mcnemar_p(g(v, "none", "calc_bits"), g(v, prim, "calc_bits")) if calc else None
+        rows.append(f"| {n} | {','.join(map(str, d['layers']))} | {cell('none')} | " + " | ".join(cell(lab.get(c)) for c in LA_COLS) +
+                    f" | {f(p, 3) if p is not None else '-'} | {f(g(v, 'none', col))} -> {f(g(v, prim, col))} |")
+    diag = [(n, d) for n, d in la.items() if d.get("ref") and d.get("ref_label", "oracle") == "oracle"]
+    if diag:
+        rows += ["", "Diagnostics (attacked models): cosine of the attack direction with the oracle direction (attacked minus target, forget prompts) "
+                 "and with the target's own forget-contrast direction; for each edited w2, |W2 - W2_target| / |W2_target|, top-two singular value "
+                 "ratio (rank-1 patch = large) and |cos| of the top left singular vector with the w2 attack direction.", "",
+                 "| model | site@layer | oracle cos | target-direction cos | sol oracle rel | dW2 rel | s1/s2 | dW2 top cos |", "|---|---|---|---|---|---|---|---|"]
+        for n, d in diag:
+            for k, x in d["directions"].items():
+                if k.startswith(("w2@", "resid@")):
+                    rows.append(f"| {n} | {k} | {f(x.get('oracle_cos'))} | {f(x.get('ref_dir_cos'))} | {f(x.get('sol_oracle_rel'))} | "
+                                f"{f(x.get('dW2_rel'), 4)} | {f(x.get('dW2_s1_s2'), 1)} | {f(x.get('dW2_top_cos_p'))} |")
+    return rows + [""]
+
+
+def cross_subskill_table(rl: dict) -> list[str]:
+    xs = {n: d for n, d in rl.items() if d.get("args", {}).get("calc_per_kind")}
+    if not xs:
+        return []
+    rows = ["## 6b. Cross-subskill relearning control (calculus)", "",
+            "LoRA r16 lr 2e-4 on 20 derivative-only self-generated dev solutions (forget_diff) or the usual 20 mixed solutions (forget). "
+            "Cells: accuracy on diff / integral / defint TEST problems (n per kind in the header row of each model; 27 per level). "
+            "Integration that returns after training only on derivatives was hidden, not taught.", "",
+            "| run | data | seed | n per kind | step 0 | 10 | 25 | 50 | 100 |", "|---|---|---|---|---|---|---|---|---|"]
+    for n, d in xs.items():
+        for kind, c in d["curves"].items():
+            pts = {p["step"]: p for p in c["curve"]}
+            p0 = pts.get(0, {})
+            nk = "/".join(str(p0.get(f"n_{k}", "-")) for k in ("diff", "integral", "defint"))
+            cells = ["/".join(f(g(pts, s, f"calc_acc_{k}"), 2) for k in ("diff", "integral", "defint")) if s in pts else "-" for s in (0, 10, 25, 50, 100)]
+            rows.append(f"| {n} | {kind} | {d['args'].get('seed', 0)} | {nk} | " + " | ".join(cells) + " |")
+    return rows + [""]
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--audit", default="results/audit")
     ap.add_argument("--abl", default="results/abl")
     ap.add_argument("--relearn", default="results/relearn")
     ap.add_argument("--jspace", default="results/jspace")
+    ap.add_argument("--local-abl", default="results/local_abl")
     ap.add_argument("--out", default="docs/AUDIT.md")
     a = ap.parse_args()
     root = Path(a.audit)
@@ -186,21 +272,28 @@ def main() -> None:
                       f" | {f(g(v, 'none', col))} -> {f(g(v, f'layer{bl}', col)) if bl is not None else '-'} |")
         md.append("")
         summary["abl"] = abl
+    la_dir = Path(a.local_abl)
+    la = {p.name: load(p / "local_abl.json") for p in sorted(la_dir.iterdir()) if (p / "local_abl.json").exists()} if la_dir.exists() else {}
+    if la:
+        md += local_abl_table(la)
+        summary["local_abl"] = la
     rl = {p.name: load(p / "relearn.json") for p in sorted(rl_dir.iterdir()) if (p / "relearn.json").exists()} if rl_dir.exists() else {}
     if rl:
         md += ["## 6. Fine-tune relearning curves (attack 10) on 20 forget-dev items vs 20 related retain items", "",
                "Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Attacker: LoRA r16 lr 2e-4 (default); full = all weights, "
-               "fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*).", "",
-               "| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 |", "|---|---|---|---|---|---|---|---|---|---|"]
+               "fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*). "
+               "r5_* = related-data attack: all weights, 1,000 steps on 200 retain-math solutions (related) or 1,000 FineWeb documents (web).", "",
+               "| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 | 250 | 500 | 1000 |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
         for n, d in rl.items():
             key = "calc_acc" if d["domain"] == "calc" else "verbmem_f1"
             ra = d.get("args", {})
             atk = ("full" + (f"+{ra['book_extra']}" if ra.get("book_extra") else "")) if ra.get("full") else "LoRA"
             for kind, c in d["curves"].items():
                 pts = {p["step"]: p for p in c["curve"]}
-                md.append(f"| {n} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200)) + " |")
+                md.append(f"| {n} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200, 250, 500, 1000)) + " |")
         md.append("")
         summary["relearn"] = rl
+        md += cross_subskill_table(rl)
 
     # ------------------------------------------------------------ attack 13
     jd = Path(a.jspace)
