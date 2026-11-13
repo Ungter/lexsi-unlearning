@@ -35,7 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 B = 2000
 CALC = ("calc_rmu_l4_c20", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "calc_rmu_l4_c5", "calc_npo", "calc_npo_sam_r0.01", "undo_calc_rmu",
-        "undo_calc_filtered", "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble")  # undo_calc_filtered = distilled from the target on calculus-free data (ERASURE_RESEARCH exp. 3)
+        "undo_calc_filtered", "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble", "surg_l2p6_calc_b100")  # undo_calc_filtered = distilled from the target on calculus-free data (ERASURE_RESEARCH exp. 3)
 BOOK = ("book_rmu_l4", "mrmu_book_l4", "surg_l2_book_b25", "surg_l2_book_b50", "book_npo", "book_npofull_plain_lr3e-5", "undo_book_rmu",
         "undo_book_ctrl",  # undo_book_ctrl = the same distillation from the target itself (no unlearning; DECISIONS TODO 3)
         "mnpo_book", "mnpo_book_rand", "mrmu_book_l4_rand", "surg_l2p5_book_b50")  # localized vs same-size random masks (Phase 5)

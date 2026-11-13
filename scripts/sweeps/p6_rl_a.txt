@@ -1,0 +1,4 @@
+# Paper P6-probe: held-out relearning, same protocol as P5 (RESULTS 7.10): standard LoRA (forget + related), cross-subskill.
+12_relearn.py surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc
+12_relearn.py xs_surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc --kinds forget_diff,forget --calc-per-kind 81 --gen-bs 125
+20_weight_attacks.py wa_surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc

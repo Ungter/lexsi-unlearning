@@ -1,6 +1,6 @@
 # Paper P6 (component-restricted relearning): the standard LoRA relearning attack (20 forget-dev items, lr 2e-4, batch 4,
-# steps 0/10/25/50/100) restricted to one component type of the hybrid: attention (q/k/v/o of the 10 attention blocks,
-# r16, 2.34M params), conv (in/out_proj of the 14 conv blocks, r16, 2.56M), MLP (w1/w2/w3 of all 24 layers, r16, 11.2M;
+# steps 0/10/25/50/100) restricted to one component type of the hybrid: attention (q/k/v/o of the 11 attention blocks,
+# r16, 2.34M params), conv (in/out_proj of the 13 conv blocks, r16, 2.56M), MLP (w1/w2/w3 of all 24 layers, r16, 11.2M;
 # and r4, 2.80M, parameter-matched). The all-module attack (r16, 16.1M) is results/relearn/<model>.
 12_relearn.py cr_undo_calc_rmu_attn s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --kinds forget --lora-targets attn --lora-r 16 --gen-bs 100
 12_relearn.py cr_undo_calc_rmu_conv s3://lexsi-hackathon/models/script-20261109-214152-u1-0f6b/undo_calc_rmu --domain calc --kinds forget --lora-targets conv --lora-r 16 --gen-bs 100

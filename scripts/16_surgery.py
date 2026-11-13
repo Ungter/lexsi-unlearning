@@ -8,6 +8,11 @@
   probe DIR --out OUT [--target calculus|book] [--steps 10,25,50] [--kind mixed|diff|integral|defint] [--cfg JSON]
                           relearning probe (lfm3u.surgery.relearn) on a saved checkpoint: not budgeted, the audit side;
                           writes OUT/probe_<kind>_s<seed>.json and the generations per step
+  suite DIR --out OUT [--k 6] [--steps 10,25,50,100] [--draw-sha DIR2 | --draw LABEL | --configs FILE] [--tag NAME] [--dry]
+                          P6 probe suite (K sampled attack configurations, lfm3u.surgery.relearn.suite) on a saved
+                          checkpoint: not budgeted, the audit side. The draw seed comes from the SHA-256 of
+                          DIR2/model.safetensors (default DIR itself) or from LABEL, or the configurations of a stored
+                          suite result FILE are replayed. Writes OUT/<tag>.json and OUT/<tag>/cfg<i>/step_<k>.jsonl
   cert RUN [--uri s3://...]                             write results/surgery/RUN/certificate.md
   selftest [--model]      numeric checks of the edit math and the guard (--model adds the checks on the real model,
                           including that the relearning probe leaves every weight bit-identical)
@@ -106,6 +111,30 @@ def cmd_probe(a) -> None:
     res |= {"model": str(a.dir), "charged": False}
     (out / f"{tag}.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
     show(res["brief"], indent=1)
+
+
+def cmd_suite(a) -> None:
+    from lfm3u.surgery import relearn
+    from lfm3u.surgery.tools import load_model, sha256
+
+    out = Path(a.out)
+    steps = [int(s) for s in a.steps.split(",")]
+    if a.configs:
+        configs, draw = json.loads(Path(a.configs).read_text(encoding="utf-8"))["configs"], {"replay_of_file": str(a.configs)}
+    else:
+        label = f"audit|{a.draw}" if a.draw else "audit|sha256|" + sha256(Path(a.draw_sha or a.dir) / "model.safetensors")
+        seed = relearn.seed_from(label, a.k)
+        configs, draw = relearn.sample_configs(seed, a.k), {"label": label, "seed": seed}
+    if a.dry:
+        show({"draw": draw, "configs": [c["name"] for c in configs]}, indent=1)
+        return
+    out.mkdir(parents=True, exist_ok=True)
+    model, tok = load_model(a.dir)
+    res = relearn.suite(model, tok, configs, steps=steps, cfg=json.loads(a.cfg) if a.cfg else None, out_dir=out / a.tag)
+    res |= {"model": str(a.dir), "charged": False, "draw": draw}
+    (out / f"{a.tag}.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    show(relearn.suite_brief(res), indent=1)
+    print("SUITE DONE", flush=True)
 
 
 def selftest(with_model: bool) -> None:
@@ -213,6 +242,32 @@ def selftest(with_model: bool) -> None:
         except GuardError:
             pass
         print("[selftest] guard: protected tensors, edit budget, revert, prompt cap, persisted forward counter, probe cost, fixed budget, close: ok")
+        # P6 suite: budget 100 exists, a suite is charged K * 3 as one charge and refused as a whole; draws are deterministic
+        # in the seed and stratified (one configuration per family and per data size in every block of three slots)
+        from lfm3u.surgery import relearn
+
+        g3 = Guard(tmp / "s", n_params=1_000_000, call_budget=100, target="calculus")
+        assert relearn.suite_cost(3, (25, 100)) == 9 and relearn.suite_cost(6, (10, 25, 50, 100)) == 30
+        assert g3.charge("relearn_suite", 3, cost=9) == 9
+        for bad in (2, 92):
+            try:
+                g3.charge("relearn_suite", 3, cost=bad)
+                raise AssertionError(f"suite charge {bad} accepted")
+            except GuardError:
+                pass
+        assert g3.state["calls_used"] == 9
+        for sd in range(200):
+            cs = relearn.sample_configs(sd, 6)
+            assert cs == relearn.sample_configs(sd, 6) and cs[:3] == relearn.sample_configs(sd, 3)
+            for blk in (cs[:3], cs[3:]):
+                assert sorted(c["family"] for c in blk) == ["full", "lora16", "lorax"] and sorted(c["n_items"] for c in blk) == [20, 60, 133]
+            assert sorted(c["lr"] for c in cs if c["family"] == "full") == [1e-5, 3e-5]
+            assert sorted(c["lr"] for c in cs if c["family"] == "lora16") == [2e-4, 1e-3]
+            assert len({(c["rank"], c["targets"]) for c in cs if c["family"] == "lorax"}) == 2
+        seen = {(c["family"], c["lr"], c["rank"], c["targets"], c["n_items"], c["schedule"]) for sd in range(1000) for c in relearn.sample_configs(sd, 3)}
+        assert len(seen) == (2 + 2 + 8) * 3 * 2, len(seen)
+        print(f"[selftest] suite: cost rule, whole-charge refusal, deterministic stratified draws, all {len(seen)} cells reachable: ok "
+              f"(distribution hash {relearn.suite_hash()[:12]})")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if not with_model:
@@ -223,7 +278,7 @@ def selftest(with_model: bool) -> None:
 
     run = "_selftest"
     shutil.rmtree(ROOT / "results/surgery" / run, ignore_errors=True)
-    S = Session(run, target="calculus", budget=10, note="selftest")
+    S = Session(run, target="calculus", budget=25, note="selftest")
     try:
         tok = S.tok
         fp = [score.chat_ids(tok, f"Find the derivative of f(x) = {e}.") for e in ("x^3 + 2*x", "sin(3*x)*exp(x)", "log(x^2 + 1)", "x*cos(x)")]
@@ -306,6 +361,31 @@ def selftest(with_model: bool) -> None:
               f"max |delta| {moved['max_abs_delta']}) leaves weights bit-identical: {identical2}; revert restores the gain: {back}; "
               f"final norm protected; scored steps {sorted(pr2)}")
         assert zeroed and identical2 and back and moved["max_abs_delta"] > 0
+        # probe suite (P6), run while the edit is active: three sampled configurations (one all-weight fine-tune on an
+        # fp32 copy, two LoRA on bf16 copies), charged 3 * 3 calls; the session model keeps every bit (full element-wise
+        # comparison against a CPU copy), its dtype, its frozen state and its parameter objects; a replay reuses the draw
+        snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
+        used = S.guard.state["calls_used"]
+        tiny = {"cfg": {"calc_per_level": 1, "calc_max_new": 48}, "_selftest": {"n_items": 4, "max_len": 384}}
+        sb = S.relearn_probe_suite(k=3, steps=(1,), note="selftest", **tiny)
+        call = S.guard.state["calls_used"]
+        full_res = json.loads((S.dir / "scores" / f"{call:02d}_suite.json").read_text(encoding="utf-8"))
+        fams = sorted(p["config"]["family"] for p in full_res["per_config"])
+        n_full = [p["n_trainable"] for p in full_res["per_config"] if p["config"]["full"]]
+        sb2 = S.relearn_probe_suite(steps=(1,), note="selftest replay", replay_of=call, **tiny)
+        now = dict(S.model.named_parameters())
+        identical3 = list(now) == list(snap) and all(torch.equal(p.detach().cpu(), snap[n]) for n, p in now.items())
+        clean3 = (all(now[n] is p for n, p in S.params.items()) and not any("lora" in n.lower() for n, _ in S.model.named_modules())
+                  and not any(p.requires_grad for p in S.model.parameters()) and all(p.dtype == torch.bfloat16 for p in S.model.parameters())
+                  and not S.model.training)
+        charged3 = S.guard.state["calls_used"] - used
+        del snap
+        print(f"[selftest] probe suite (edit active): configurations {list(sb['configs'])}; charged {charged3} calls for two suites; "
+              f"all-weight copy trained {n_full[0]:,} of {S.guard.state['n_params']:,} parameters; session weights bit-identical: "
+              f"{identical3}; model clean (objects, dtype, frozen, no adapter): {clean3}; replay used the same draw: "
+              f"{list(sb2['configs']) == list(sb['configs'])}; max over configurations {sb['max']}")
+        assert identical3 and clean3 and charged3 == 18 and fams == ["full", "lora16", "lorax"] and n_full == [S.guard.state["n_params"]]
+        assert list(sb2["configs"]) == list(sb["configs"]) and S.guard.state["meta"]["suite_hash"] == full_res["suite_hash"]
         S.revert(rec["id"], "selftest")
         restored = torch.equal(S.params[name], orig)
         h.remove()
@@ -351,6 +431,17 @@ def main() -> None:
     p.add_argument("--n-items", type=int, default=20)
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--cfg", default=None)
+    p = sub.add_parser("suite")
+    p.add_argument("dir")
+    p.add_argument("--out", required=True)
+    p.add_argument("--k", type=int, default=6)
+    p.add_argument("--steps", default="10,25,50,100")
+    p.add_argument("--draw-sha", default=None, help="checkpoint dir whose model.safetensors SHA-256 seeds the draw (default: DIR)")
+    p.add_argument("--draw", default=None, help="label that seeds the draw instead of a checkpoint hash")
+    p.add_argument("--configs", default=None, help="stored suite result (json) whose configurations are replayed")
+    p.add_argument("--tag", default="suite")
+    p.add_argument("--cfg", default=None)
+    p.add_argument("--dry", action="store_true", help="print the drawn configurations and exit")
     p = sub.add_parser("cert")
     p.add_argument("run")
     p.add_argument("--uri", default=None)
@@ -375,6 +466,8 @@ def main() -> None:
         cmd_evalckpt(a)
     elif a.cmd == "probe":
         cmd_probe(a)
+    elif a.cmd == "suite":
+        cmd_suite(a)
     elif a.cmd == "cert":
         from lfm3u.surgery import cert
 

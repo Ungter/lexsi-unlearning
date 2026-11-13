@@ -328,6 +328,10 @@ def math_prompts(tok, topics: tuple, n: int, split: str = "train", seed: int = 0
 # ------------------------------------------------------------------ data
 
 def selfgen(source: str, n: int, seed: int, max_len: int = 2048) -> tuple[list[list[int]], list[int]]:
+    import os
+
+    if os.environ.get("LFM3U_NO_SELFGEN_DEV"):   # P6: the held-out relearning attacks train on this file
+        raise RuntimeError("the dev-split selfgen file is off limits in this session (nll_calc / nll_retain_math tasks)")
     rows = [json.loads(line) for line in SELFGEN_DEV.read_text(encoding="utf-8").splitlines() if line.strip()]
     rows = [r for r in rows if r["source"] == source and len(r["prompt_ids"]) + len(r["completion_ids"]) <= max_len]
     rows.sort(key=lambda r: r["id"])

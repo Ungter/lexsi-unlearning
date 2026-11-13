@@ -8,7 +8,10 @@ Rules
               number of elements that differ in the bf16 checkpoint.
   forwards    run_forward / dev_score are charged one call each (<= 256 prompts for run_forward); relearn_probe (P5:
               a LoRA relearning attack on the current weights, scored on dev) is charged 1 + scored steps, at least 3;
-              the session budget is 10, 25 or 50 and is fixed when the run is created
+              relearn_suite (P6: K sampled attack configurations, each on a fresh copy of the current weights) is
+              charged K * (1 + scored steps, at least 3), as one charge that is refused as a whole if it does not fit;
+              the session budget is 10, 25, 50 or 100 (100 added for P6, whose suite probes cost about 9 calls each)
+              and is fixed when the run is created
   closing     save_patch closes the run: no more edits or budgeted calls (the final dev eval of the saved checkpoint is
               the audit, not feedback)
 
@@ -23,7 +26,7 @@ import time
 from pathlib import Path
 
 PROTECTED = ("embed_tokens", "lm_head", "embedding_norm")
-BUDGETS = (10, 25, 50)
+BUDGETS = (10, 25, 50, 100)
 MAX_PROMPTS = 256
 MAX_FRAC = 0.001
 
@@ -106,7 +109,7 @@ class Guard:
         before any model work is done. Returns the number of the last call charged (the call's id in the logs)."""
         self._open()
         cost = int(cost)
-        if cost < 1 or (kind == "relearn_probe" and cost < 3):
+        if cost < 1 or (kind in ("relearn_probe", "relearn_suite") and cost < 3):
             raise GuardError(f"{kind} cannot be charged {cost} call(s)")
         if kind == "run_forward" and n_prompts > MAX_PROMPTS:
             raise GuardError(f"run_forward takes at most {MAX_PROMPTS} prompts per call (got {n_prompts})")

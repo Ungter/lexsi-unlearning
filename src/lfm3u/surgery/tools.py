@@ -8,6 +8,11 @@ Budgeted (one forward call each)
 Budgeted (1 + scored steps, at least 3 forward calls)
   relearn_probe(steps)   P5: LoRA relearning attack on the CURRENT edited weights (relearn.py), scored on dev at each
                          requested step; the adapter is discarded and the weights are verified bit-identical
+Budgeted (K * (1 + scored steps, at least 3) forward calls)
+  relearn_probe_suite(k, steps)   P6: K attack configurations SAMPLED from the registered distribution (relearn.SUITE:
+                         all-weight fine-tuning, LoRA r16, LoRA of other ranks / restricted to attention or conv; lr, data
+                         size, schedule and seed vary), each on a fresh copy of the current weights; returns the curve of
+                         every configuration plus the max and mean accuracy over configurations at each step
 Edits (through the guard; each is a delta file, re-applied when the run is loaded in another process)
   ablate_direction, scale_units, rank_one, ablate_subspace, set_elements (sparse; also per-layer norm gains), revert
 save_patch writes the full bf16 checkpoint from the ORIGINAL weights plus the logged deltas and closes the run.
@@ -473,6 +478,68 @@ class Session:
         self.guard.record_probe({"kind": kind, "n_items": res["n_items"], "steps": steps, "cost": relearn.cost(steps),
                                  "seed": seed, "gains": res["lora"]["gain_adapters"], "brief": res["brief"]})
         return res["brief"]
+
+    def register_suite(self) -> str:
+        """Write the suite's configuration distribution (relearn.SUITE) and its cost rule to the run's log, once. Every
+        later suite call checks the hash, so the distribution cannot change during a session."""
+        from lfm3u.surgery import relearn
+
+        h = relearn.suite_hash()
+        meta = self.guard.state["meta"]
+        if "suite_hash" not in meta:
+            meta["suite_hash"] = h
+            self.guard._save()
+            self.guard._event({"event": "suite_spec", "suite_hash": h, "suite": relearn.SUITE, "cost_rule": "relearn_probe_suite is "
+                               "charged K * (1 forward call for the training + 1 per scored step, at least 3) as one charge, "
+                               "before any model work; a replayed draw is charged the same"})
+        elif meta["suite_hash"] != h:
+            raise GuardError("relearn.SUITE differs from the distribution registered for this run; it must not change")
+        return h
+
+    def relearn_probe_suite(self, k: int = 3, steps=(25, 100), *, cfg: dict | None = None, note: str = "",
+                            replay_of: int | None = None, _selftest: dict | None = None) -> dict:
+        """Budgeted (relearn.suite_cost = k * (1 + scored steps, at least 3) forward calls, charged before any model
+        work). Calculus only. Draws k attack configurations from the registered distribution relearn.SUITE with the
+        seed sha256(run | calls used | earlier suite calls | digest of the current weights), which the caller does
+        not choose, and runs each on a fresh copy of the CURRENT edited weights (relearn.suite); the session model is
+        never trained and is verified bit-identical afterwards. replay_of = the call id of an earlier suite of this
+        run: use that call's configurations again (for a paired comparison of two edits; same charge).
+        Returns {"configs": {name: {step: [acc, truncated]}}, "max": {step: acc}, "mean": {step: acc}, "worst": {step:
+        name}}; the full result is in scores/<call>_suite.json, the generations in suite_<call>/cfg<i>/step_<k>.jsonl."""
+        from lfm3u.surgery import relearn
+
+        if self.target != "calculus":
+            raise GuardError("the probe suite is defined for calculus runs only")
+        if _selftest is not None and self.run != "_selftest":
+            raise GuardError("shrunken suite configurations are for the selftest run only")
+        steps = sorted({int(s) for s in steps})
+        if not steps or steps[0] < 1 or steps[-1] > relearn.MAX_STEPS:
+            raise GuardError(f"suite steps must be within 1..{relearn.MAX_STEPS}")
+        self.register_suite()
+        calls = self.guard.state["calls"]
+        n_before = sum(1 for c in calls if c["kind"] == "relearn_suite")
+        if replay_of is not None:
+            src = self.dir / "scores" / f"{int(replay_of):02d}_suite.json"
+            if not src.is_file():
+                raise GuardError(f"no suite call {replay_of} in this run to replay")
+            configs = json.loads(src.read_text(encoding="utf-8"))["configs"]
+            k, draw = len(configs), {"replay_of": int(replay_of)}
+        else:
+            digest = relearn.weights_digest(relearn.fingerprint(self.model))
+            seed = relearn.seed_from(self.run, self.guard.state["calls_used"], n_before, digest)
+            configs = relearn.sample_configs(seed, k)
+            draw = {"seed": seed, "calls_used_before": self.guard.state["calls_used"], "suites_before": n_before, "weights_digest": digest}
+        cost = relearn.suite_cost(k, steps)
+        n = self.guard.charge("relearn_suite", k, (note + "; " if note else "") + f"k {k}, steps {steps}, "
+                              + "; ".join(c["name"] for c in configs) + (f" (replay of call {replay_of})" if replay_of is not None else ""),
+                              cost=cost)
+        res = relearn.suite(self.model, self.tok, configs, steps=steps, cfg=cfg, out_dir=self.dir / f"suite_{n:02d}", test=_selftest)
+        res |= {"draw": draw, "call": n, "cost": cost, "note": note}
+        (self.dir / "scores").mkdir(exist_ok=True)
+        (self.dir / "scores" / f"{n:02d}_suite.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+        brief = relearn.suite_brief(res)
+        self.guard.record_probe({"kind": "suite", "k": k, "steps": steps, "cost": cost, "draw": draw, "gains": None, "brief": brief})
+        return brief
 
     # ------------------------------------------------------------ edits
     def _commit(self, param: str, spec: dict, *, op: str, args: dict, rationale: str, cost: int) -> dict:

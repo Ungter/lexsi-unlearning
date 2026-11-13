@@ -1,0 +1,2 @@
+# Paper P6-probe: full Phase-6 test audit of the sampled-probe surgery patch (docs/SURGERY_P6.md), plus weight attacks.
+surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domains calc

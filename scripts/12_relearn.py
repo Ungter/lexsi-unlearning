@@ -244,7 +244,7 @@ def main() -> None:
     ap.add_argument("--schedule", choices=("constant", "cosine"), default="constant")
     ap.add_argument("--lora-targets", default="all",
                     help="LoRA modules: comma list of groups (all, attn, conv, mlp) or module names; attn = q/k/v/o_proj of the 10 "
-                         "attention blocks, conv = in_proj/out_proj of the 14 conv blocks, mlp = w1/w2/w3 of all 24 layers")
+                         "attention blocks, conv = in_proj/out_proj of the 13 conv blocks, mlp = w1/w2/w3 of all 24 layers")
     ap.add_argument("--lora-r", type=int, default=16, help="LoRA rank (alpha = 2r, as the default 16/32)")
     ap.add_argument("--warmup", type=int, default=0, help="linear warmup steps")
     ap.add_argument("--web", default="s3://lexsi-hackathon/eval/fineweb_anchor.jsonl", help="kind 'web': generic text source")

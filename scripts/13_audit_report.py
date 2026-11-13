@@ -23,7 +23,7 @@ REFS = ("base", "target", "b0", "retain")
 BOOK_UNL = ("book_rmu_l4", "book_npo", "book_npofull_plain_lr3e-5", "mrmu_book_l4", "mrmu_book_l4_rand",  # mrmu_* = Phase-5 masked RMU
             "surg_l2_book_b25", "surg_l2_book_b50", "surg_l2_book_b10", "surg_base_book", "surg_l2p5_book_b50")  # surg_* = Phase-7 weight-surgery patches (docs/SURGERY.md)
 CALC_UNL = ("calc_npo", "calc_npo_sam_r0.01", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "surg_base_calc",
-            "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble")  # l2p5* = P5 sessions with a relearning probe
+            "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble", "surg_l2p6_calc_b100")  # l2p5* = P5 sessions with a relearning probe
 
 
 def load(p: Path):

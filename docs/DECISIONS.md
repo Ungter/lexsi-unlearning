@@ -1025,6 +1025,38 @@ here, with the advisor model as a second opinion). All TEST splits, one seed unl
   0.66. Weight attacks on the main patch: ≤ 0.02. **Reading:** the patch resists only the attack family it was selected
   against (finding 18, RESULTS §7.10); off-family it comes back like UNDO and RMU. Phase 7 stays open: one session, one
   probe design; a probe that samples attack configurations is the next design, not run.
+
+## 2026-11-13: Sampled-attack probe session (P6-probe) done; held-out audit launched
+
+- **Agent** (Claude Fable 5.2, xhigh; `docs/SURGERY_P6.md`; own Vast box, ~$7.1, destroyed 07:25 EST): added
+  `Session.relearn_probe_suite` (`src/lfm3u/surgery/relearn.py`), which draws K attack configurations per call from a
+  distribution fixed before the session (LoRA r4/16/64, lr 2e-4 / 1e-3, attention- or conv-only, all-weight lr 1e-5 /
+  3e-5, 20 / 60 / 133 train-split items, constant or warmup + cosine, batch seed; seed from the call counter) and
+  reports the worst and mean configuration. Selftest: weights bit-identical after a suite.
+- **Session `l2p6_calc_b100`** (65 of 100 calls, 54 in six K = 3 suites; exactly one saved checkpoint): negated write of
+  the calculus probes, `W ← W − 2(W C V₇)V₇ᵀ` on `w2` of all 24 layers (guard 0.0945%; 21.3% of bf16 elements change).
+  Meets none of its three objectives: dev calculus 0 / 120 but 116 / 120 unfinished (degenerate); retain math 45 / 54
+  (target 50); MMLU-val 0.515, ppl 20.32 (19.78); book verbatim also damaged (0.70 / 0.77 vs 0.89 / 0.88).
+- **Final K = 6 suite (dev, worst / mean config at 10 / 25 / 50 / 100 steps):** patch 0.05 / 0.22 / 0.40 / 0.52 and
+  0.01 / 0.08 / 0.28 / 0.31; P5 patch 0.30 / 0.45 / 0.63 / 0.67 and 0.09 / 0.35 / 0.46 / 0.46; target 0.63 / 0.65 / 0.67
+  / 0.70. Worst attacker: all weights, lr 1e-5, 133 items, still rising at 100. Agent's main finding: the amount of
+  attack data decides recovery more than the attacker type (20-item attacks stall at 0.15–0.43; 60–133 items bring every
+  candidate to 0.37–0.68).
+- **Corrections from its log:** the checkpoint has 13 conv and 11 attention blocks, not 14 and 10 (fixed in RESULTS §7.9,
+  `12_relearn.py` help and the `cr_*` specs; the measured LoRA parameter counts were already right). It skipped two NLL
+  probes because they read the dev-split selfgen file, which the held-out attacks use.
+- **Held-out audit launched 07:28 EST** (`results/vast/p6_runs.json`): test audit (`p6_aud`); standard LoRA, cross-subskill
+  and weight attacks (`p6_rl_a`); all weights + 133 dev solutions (`p6_rl_b`); LoRA on 133 items and LoRA lr 1e-3
+  (`p6_rl_c`), i.e. the P5 protocol (RESULTS §7.10).
+- **Held-out results (all 4 boxes done by 09:15 EST, no failures, none left running).** Test calculus 0.00 with 89%
+  unfinished (degenerate); all prompt-side attacks 0.00 (tool included); weight attacks 0.00; retain math 0.933, MMLU
+  0.501, IFEval 0.826, ppl 21.7, book verbatim 0.833 (target 0.944). Relearning: standard LoRA 0.00 / 0.01 / 0.11 / 0.17
+  at 10 / 25 / 50 / 100 (P5 0.01 / 0.21 / 0.23 / 0.29); LoRA 133 items 0.02 / 0.25 / 0.33 / 0.46 at 25 / 50 / 100 / 200
+  (P5 0.35 / 0.61 / 0.67 / 0.71); LoRA lr 1e-3 0.14 / 0.18 / 0.19 / 0.24 (P5 0.46 / 0.48 / 0.52 / 0.40); all weights +
+  133 items 0.12 / 0.47 / 0.51 / 0.61 (P5 0.55 / 0.69 / 0.72 / 0.71; UNDO 0.58 / 0.71 / 0.72 / 0.70); derivative-only:
+  integrals 0.00. **Reading:** sampled-configuration selection generalises to held-out attack families (unlike P5's
+  single-configuration probe), as a delay of roughly 4× in steps, not erasure; still degenerate, with a retain and
+  book-recall cost. RESULTS finding 18 and §7.10 updated.
   - Projection at all 24 layers: uninformative. The same projection collapses the target (book 0.944 → 0.09–0.14, calculus
     w2 0.00, retain math 0.00).
 - **Ops.** `wa_book` logged its self-destroy at 09:47 EST but billed until destroyed by hand at 12:03 (second time today;

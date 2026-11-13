@@ -1,0 +1,2 @@
+# Paper P6-probe: off-family attacks (as p5_str_*): all weights + all 133 dev solutions; LoRA on 133 items; LoRA lr 1e-3.
+12_relearn.py cs_surg_l2p6_calc_b100_forget s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc --kinds forget --full --lr 1e-5 --forget-n 200 --calc-per-kind 81 --gen-bs 125 --steps 0,25,50,100,200

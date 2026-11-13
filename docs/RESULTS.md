@@ -86,7 +86,10 @@ attack, depth ladder).
     24-layer calculus edit comes back to only 0.29 under the standard 20-item LoRA attack (every other method 0.68–0.75)
     and no prompt-side attack exceeds 0.10, but with 133 items, a 5× learning rate or all-weight fine-tuning it returns
     to 0.52–0.72, level with UNDO and RMU; it is also degenerate (87% unfinished). Relearning robustness must be tested
-    across attack configurations, not on the one used for selection. (§7.10)
+    across attack configurations, not on the one used for selection. With a probe that samples attack configurations
+    instead, the next session's edit resists held-out attacks of every family better (all-weight, 133 items: 0.51 at 100
+    steps vs 0.72 for P5 and UNDO; 0.61 at 200, still rising), though it stays degenerate and costs some retain math and
+    book recall. (§7.10)
 14. **Distillation removes what the repair data leaves out, but only fine-tuned text, not a pretrained skill.**
     Distilling the target into a 25%-shrunk copy on data without the book's test passages puts them at the
     never-trained floor and keeps them there under the strongest relearning attack (3% back), with no unlearning step.
@@ -787,7 +790,7 @@ the calculus self-generated answers and the 12,855 FineWeb documents that use ca
 Launched 15:58–16:02 EST, all done by 18:10 (12 boxes; `results/vast/abc_runs.json`). TEST splits except the ladder (DEV).
 
 **A. Component-restricted relearning (paper P6).** The standard LoRA attack (20 forget-dev items, lr 2e-4, batch 4)
-restricted to one component type: attention (q/k/v/o of the 10 attention blocks), conv (in/out_proj of the 14 conv
+restricted to one component type: attention (q/k/v/o of the 11 attention blocks), conv (in/out_proj of the 13 conv
 blocks), MLP (w1/w2/w3 of all 24 layers). Calculus accuracy (100 problems) at 25 / 100 steps:
 
 | model | all modules, r16 (16.1M params) | attention, r16 (2.3M) | conv, r16 (2.6M) | MLP, r4 (2.8M) | MLP, r16 (11.2M) |
@@ -902,6 +905,32 @@ b50 patches 0.68 / 0.54). Retain math 0.967, MMLU 0.515, IFEval 0.836. INT8 / IN
   all-weight NPO 25%).
 - This keeps Phase 7 empirically open rather than settled: one session, one agent, one probe design. A probe that
   samples attack configurations (data size, learning rate, all-weight vs LoRA) is the obvious next design.
+
+**P6-probe: the same agent design with a sampled-attack probe** (`docs/SURGERY_P6.md`, 2026-11-13). Each probe call drew
+3 attack configurations from a distribution fixed before the session (LoRA r4/16/64, lr 2e-4 / 1e-3, attention- or
+conv-only, all-weight lr 1e-5 / 3e-5, 20 / 60 / 133 train-split items, schedule, seed) and the agent selected on the
+worst one. Session `l2p6_calc_b100` (65 of 100 calls, one checkpoint): the calculus write directions of `w2` in all 24
+layers are negated rather than removed (guard 0.0945%; 21.3% of bf16 elements change).
+
+| attack (100 / 243 test problems) | steps | `l2p6_calc_b100` | `l2p5_calc_b50` | UNDO (RMU teacher) | target |
+|---|---|---|---|---|---|
+| standard LoRA, 20 items | 25 / 100 | **0.01 / 0.17** | 0.21 / 0.29 | 0.58 / 0.68 | 0.74 / 0.78 |
+| LoRA, 133 items | 50 / 100 / 200 | **0.25 / 0.33 / 0.46** | 0.61 / 0.67 / 0.71 | - | - |
+| LoRA lr 1e-3, 20 items | 25 / 100 / 200 | **0.14 / 0.19 / 0.24** | 0.46 / 0.52 / 0.40 | - | - |
+| all weights, lr 1e-5, 133 items (target 0.77) | 25 / 50 / 100 / 200 | **0.12 / 0.47 / 0.51 / 0.61** | 0.55 / 0.69 / 0.72 / 0.71 | 0.58 / 0.71 / 0.72 / 0.70 | - |
+| related data (LoRA, 20 other-math items) | 100 | 0.00 | 0.02 | 0.00 | - |
+| derivative-only (LoRA, 68 items): integrals | 100 | 0.00 | 0.00 | 0.00 | 0.70–0.78 |
+
+- **Selecting on sampled attacks transfers to held-out attacks.** Against every off-family attack the P6 patch comes
+  back less and later than the P5 patch: the worst held-out attack (all weights, 133 items) reaches 0.51 at 100 steps
+  (P5 0.72, UNDO 0.72), and 0.61 at 200 steps, still rising. It is a delay, not erasure: 79% of the target by step 200.
+- Test audit: calculus 0.00 with 89% unfinished (degenerate, as P5), every prompt-side attack 0.00 including the tool
+  loophole, INT8 / INT4 / weight noise 0.00. Utility: retain math 0.933 (target 0.95), MMLU 0.501 (0.513), IFEval 0.826
+  (0.848), ppl 21.7 (21.1). Collateral the agent's limits did not cover: book verbatim recall 0.833 (target 0.944).
+- Reading: the overfitting in finding 18 was a property of the single-configuration probe, not of the editor. A probe
+  that samples configurations buys a real, attack-general delay (the strongest all-weight attack needs ~4× the steps to
+  reach P5's level), at the price of degenerate output on calculus and a measurable retain cost. Phase 7 remains open:
+  one session per design, and neither patch is non-degenerate.
 
 ## 8. Limitations (so far)
 

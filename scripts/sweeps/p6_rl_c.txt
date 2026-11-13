@@ -1,0 +1,3 @@
+# Paper P6-probe: off-family LoRA attacks (as p5_str_b).
+12_relearn.py lr133_surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc --kinds forget --forget-n 200 --steps 0,25,50,100,200
+12_relearn.py lrhi_surg_l2p6_calc_b100 s3://lexsi-hackathon/models/surgery/l2p6_calc_b100 --domain calc --kinds forget --lr 1e-3 --steps 0,25,50,100,200
