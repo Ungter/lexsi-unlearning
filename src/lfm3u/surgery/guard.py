@@ -6,8 +6,9 @@ Rules
               active edits must stay <= max_frac (0.1%) of all parameters. (PLAN counted changed elements only, but a
               rank-one edit of one w2 touches all 15.7M of its elements.) save_patch reports both this cost and the
               number of elements that differ in the bf16 checkpoint.
-  forwards    run_forward / dev_score are charged one call each (<= 256 prompts for run_forward); the session budget is
-              10, 25 or 50 and is fixed when the run is created
+  forwards    run_forward / dev_score are charged one call each (<= 256 prompts for run_forward); relearn_probe (P5:
+              a LoRA relearning attack on the current weights, scored on dev) is charged 1 + scored steps, at least 3;
+              the session budget is 10, 25 or 50 and is fixed when the run is created
   closing     save_patch closes the run: no more edits or budgeted calls (the final dev eval of the saved checkpoint is
               the audit, not feedback)
 
@@ -100,16 +101,21 @@ class Guard:
     def calls_left(self) -> int:
         return self.state["call_budget"] - self.state["calls_used"]
 
-    def charge(self, kind: str, n_prompts: int, note: str = "") -> int:
-        """Charge one budgeted forward call (run_forward or dev_score). Raises before any model work is done."""
+    def charge(self, kind: str, n_prompts: int, note: str = "", cost: int = 1) -> int:
+        """Charge a budgeted call: `cost` forward calls (1 for run_forward / dev_score, >= 3 for relearn_probe). Raises
+        before any model work is done. Returns the number of the last call charged (the call's id in the logs)."""
         self._open()
+        cost = int(cost)
+        if cost < 1 or (kind == "relearn_probe" and cost < 3):
+            raise GuardError(f"{kind} cannot be charged {cost} call(s)")
         if kind == "run_forward" and n_prompts > MAX_PROMPTS:
             raise GuardError(f"run_forward takes at most {MAX_PROMPTS} prompts per call (got {n_prompts})")
-        if self.calls_left <= 0:
-            self._event({"event": "rejected_call", "kind": kind, "reason": "forward budget used up"})
-            raise BudgetExceeded(f"forward budget of {self.state['call_budget']} calls is used up")
-        self.state["calls_used"] += 1
-        rec = {"n": self.state["calls_used"], "time": _now(), "kind": kind, "n_prompts": n_prompts, "note": note,
+        if self.calls_left < cost:
+            self._event({"event": "rejected_call", "kind": kind, "cost": cost, "calls_left": self.calls_left,
+                         "reason": "forward budget used up"})
+            raise BudgetExceeded(f"{kind} costs {cost} call(s); {self.calls_left} of {self.state['call_budget']} left")
+        self.state["calls_used"] += cost
+        rec = {"n": self.state["calls_used"], "time": _now(), "kind": kind, "cost": cost, "n_prompts": n_prompts, "note": note,
                "active_edits": [e["id"] for e in self.active()]}
         self.state["calls"].append(rec)
         self._save()
@@ -178,6 +184,13 @@ class Guard:
         self.state["scores"].append(score)
         self._save()
         self._event({"event": "score", "call": score["call"], "active_edits": score["active_edits"]})
+
+    def record_probe(self, probe: dict) -> None:
+        """Store the result of a relearning probe (kept apart from the dev scores: it is not the edits' dev_after)."""
+        probe = {"call": self.state["calls_used"], "active_edits": [e["id"] for e in self.active()], **probe}
+        self.state.setdefault("probes", []).append(probe)
+        self._save()
+        self._event({"event": "probe", **probe})
 
     def close(self, patch: dict) -> None:
         self.state["closed"] = True

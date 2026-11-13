@@ -5,8 +5,11 @@ Read-only (not budgeted; they return weights, attribution scores or internal act
 Budgeted (one forward call each)
   run_forward(prompts)   generations and/or teacher-forced log-probs for up to 256 prompts
   dev_score(tasks)       the dev scorer (score.py); stored as the before/after score of the edits around it
+Budgeted (1 + scored steps, at least 3 forward calls)
+  relearn_probe(steps)   P5: LoRA relearning attack on the CURRENT edited weights (relearn.py), scored on dev at each
+                         requested step; the adapter is discarded and the weights are verified bit-identical
 Edits (through the guard; each is a delta file, re-applied when the run is loaded in another process)
-  ablate_direction, scale_units, rank_one, revert
+  ablate_direction, scale_units, rank_one, ablate_subspace, set_elements (sparse; also per-layer norm gains), revert
 save_patch writes the full bf16 checkpoint from the ORIGINAL weights plus the logged deltas and closes the run.
 
 Weights are edited in fp32 (original + sum of active deltas) and cast to bf16, so edits commute and revert is exact.
@@ -440,6 +443,37 @@ class Session:
         self.guard.record_score({"tasks": tasks if isinstance(tasks, str) else list(tasks), "brief": res["brief"]})
         return res["brief"]
 
+    def relearn_probe(self, steps=(25,), *, n_items: int = 20, kind: str = "mixed", cfg: dict | None = None, seed: int = 0,
+                      lr: float = 2e-4, batch: int = 4, max_len: int | None = None, gains: bool = False,
+                      gain_lr: float | None = None, note: str = "") -> dict:
+        """Budgeted (relearn.cost(steps) = 1 + scored steps, at least 3 forward calls; charged before any model work).
+        LoRA (r16, alpha 32, all projections, lr 2e-4, batch 4) on `n_items` train-split items of the run's target
+        (calculus: the target's own solutions, kind = mixed | diff | integral | defint; book: forget train chunks),
+        applied to the current edited weights; the dev set is scored with the adapter active at each step in `steps`
+        (0 = no update). max_len truncates the training sequences (default: none; the selftest uses it to fit a small
+        GPU). gains=True also trains additive adapters on every RMSNorm gain (the stronger variant for edits that
+        touch norm gains, which a LoRA cannot adapt). The adapter is then discarded; the probe raises if any weight changed. Returns the brief
+        view {step: {acc, trunc, gib, noans, diff, integral, defint, train_loss}}; the full result is in
+        scores/<call>_probe.json and the generations in probe_<call>/step_<k>.jsonl."""
+        from lfm3u.surgery import relearn
+
+        steps = sorted({int(s) for s in steps})
+        if not steps or steps[0] < 0 or steps[-1] > relearn.MAX_STEPS:
+            raise GuardError(f"probe steps must be within 0..{relearn.MAX_STEPS}")
+        if not self.guard.state.get("probes") and not any(c["kind"] == "relearn_probe" for c in self.guard.state["calls"]):
+            self.guard._event({"event": "probe_cost_rule", "rule": "relearn_probe is charged 1 forward call for the LoRA training "
+                               "plus 1 per scored step, at least 3 (one or two scored steps = 3, the brief's default; each "
+                               "further scored step is one more generation pass over the dev set)"})
+        n = self.guard.charge("relearn_probe", n_items, (note + "; " if note else "") + f"{kind}, {n_items} items, steps {steps}"
+                              + (f", gain adapters lr {gain_lr or lr}" if gains else ""), cost=relearn.cost(steps))
+        res = relearn.probe(self.model, self.tok, target=self.target, steps=steps, n_items=n_items, kind=kind, lr=lr, batch=batch,
+                            seed=seed, cfg=cfg, out_dir=self.dir / f"probe_{n:02d}", max_len=max_len, gains=gains, gain_lr=gain_lr)
+        (self.dir / "scores").mkdir(exist_ok=True)
+        (self.dir / "scores" / f"{n:02d}_probe.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+        self.guard.record_probe({"kind": kind, "n_items": res["n_items"], "steps": steps, "cost": relearn.cost(steps),
+                                 "seed": seed, "gains": res["lora"]["gain_adapters"], "brief": res["brief"]})
+        return res["brief"]
+
     # ------------------------------------------------------------ edits
     def _commit(self, param: str, spec: dict, *, op: str, args: dict, rationale: str, cost: int) -> dict:
         p = self.params.get(param)
@@ -515,6 +549,26 @@ class Session:
         args = {"rank": U.shape[1], "label": label, "delta_fro": float((U @ V.T).norm()), "rel_change": float((U @ V.T).norm() / W.norm())}
         return self._commit(param, {"kind": "lowrank", "U": U, "V": V}, op="rank_one", args=args, rationale=rationale,
                             cost=edit_cost("lowrank", tuple(W.shape), rank=U.shape[1]))
+
+    def set_elements(self, param: str, idx, values, *, rationale: str = "", label: str = "") -> dict:
+        """Sparse edit: set the flattened elements `idx` (unique) of a tensor to `values` (a scalar or one value per
+        index). Works on weight matrices and on the per-layer RMSNorm gain vectors (the final norm is protected).
+        Cost = number of elements. Stored as a delta against the current effective value, so it commutes with the
+        other edits and reverts exactly."""
+        torch = self.torch
+        self.guard.check_param(param)
+        if param not in self.params:
+            raise GuardError(f"no parameter {param}")
+        W = self.effective(param)
+        idx = torch.as_tensor(idx, dtype=torch.long).reshape(-1)
+        if len(idx) == 0 or len(torch.unique(idx)) != len(idx) or int(idx.min()) < 0 or int(idx.max()) >= W.numel():
+            raise GuardError("idx must be unique flat indices inside the tensor")
+        cur = W.reshape(-1)[idx.to(self.device)]
+        new = torch.as_tensor(values, dtype=torch.float32, device=self.device) * torch.ones_like(cur)
+        delta = new - cur
+        args = {"n_elements": len(idx), "label": label, "delta_fro": float(delta.norm()), "rel_change": float(delta.norm() / W.norm())}
+        return self._commit(param, {"kind": "flat", "idx": idx, "delta": delta}, op="set_elements", args=args, rationale=rationale,
+                            cost=edit_cost("flat", tuple(W.shape), n_elements=len(idx)))
 
     def ablate_subspace(self, module: str, sub: str, k: int, *, rationale: str = "", random_control: int | None = None) -> dict:
         """Rank-k edit that removes the top-k contrast_subspace components from a writer's input:

@@ -5,8 +5,12 @@
                           results/surgery/RUN/steps/NN_<name>.{py,out} as the agent's trace
   status RUN              budgets used and active edits
   evalckpt DIR --out OUT [--tasks full] [--cfg JSON]    dev eval of a saved checkpoint (not budgeted; the audit side)
+  probe DIR --out OUT [--target calculus|book] [--steps 10,25,50] [--kind mixed|diff|integral|defint] [--cfg JSON]
+                          relearning probe (lfm3u.surgery.relearn) on a saved checkpoint: not budgeted, the audit side;
+                          writes OUT/probe_<kind>_s<seed>.json and the generations per step
   cert RUN [--uri s3://...]                             write results/surgery/RUN/certificate.md
-  selftest [--model]      numeric checks of the edit math and the guard (--model adds the checks on the real model)
+  selftest [--model]      numeric checks of the edit math and the guard (--model adds the checks on the real model,
+                          including that the relearning probe leaves every weight bit-identical)
 
 Step files are plain Python. In scope: S, torch, score (lfm3u.surgery.score), show(obj) (prints JSON), ROOT.
 """
@@ -89,6 +93,21 @@ def cmd_evalckpt(a) -> None:
     show(res["brief"])
 
 
+def cmd_probe(a) -> None:
+    from lfm3u.surgery import relearn
+    from lfm3u.surgery.tools import load_model
+
+    out = Path(a.out)
+    out.mkdir(parents=True, exist_ok=True)
+    model, tok = load_model(a.dir)
+    tag = f"probe_{a.kind}_s{a.seed}"
+    res = relearn.probe(model, tok, target=a.target, steps=[int(s) for s in a.steps.split(",")], n_items=a.n_items, kind=a.kind,
+                        seed=a.seed, cfg=json.loads(a.cfg) if a.cfg else None, out_dir=out / tag)
+    res |= {"model": str(a.dir), "charged": False}
+    (out / f"{tag}.json").write_text(json.dumps(res, indent=1), encoding="utf-8")
+    show(res["brief"], indent=1)
+
+
 def selftest(with_model: bool) -> None:
     import shutil
     import tempfile
@@ -161,8 +180,22 @@ def selftest(with_model: bool) -> None:
             gd.charge("run_forward", 10)
         gd2 = Guard(tmp / "r")  # a new process sees the same counter
         assert gd2.state["calls_used"] == 6 and gd2.used() == 600
-        for _ in range(4):
-            gd2.charge("dev_score", 0)
+        # relearning probe: charged several calls at once, refused as a whole when they do not fit, never cheaper than 3
+        try:
+            gd2.charge("relearn_probe", 20, cost=5)
+            raise AssertionError("probe over budget accepted")
+        except BudgetExceeded:
+            pass
+        try:
+            gd2.charge("relearn_probe", 20, cost=1)
+            raise AssertionError("probe charged one call")
+        except GuardError:
+            pass
+        assert gd2.state["calls_used"] == 6
+        assert gd2.charge("relearn_probe", 20, cost=3) == 9 and gd2.state["calls"][-1]["cost"] == 3
+        gd2.record_probe({"kind": "mixed", "brief": {}})
+        assert Guard(tmp / "r").state["probes"][0]["call"] == 9
+        gd2.charge("dev_score", 0)
         try:
             Guard(tmp / "r").charge("dev_score", 0)
             raise AssertionError("forward budget not enforced")
@@ -179,7 +212,7 @@ def selftest(with_model: bool) -> None:
             raise AssertionError("closed run accepted an edit")
         except GuardError:
             pass
-        print("[selftest] guard: protected tensors, edit budget, revert, prompt cap, persisted forward counter, fixed budget, close: ok")
+        print("[selftest] guard: protected tensors, edit budget, revert, prompt cap, persisted forward counter, probe cost, fixed budget, close: ok")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
     if not with_model:
@@ -233,6 +266,46 @@ def selftest(with_model: bool) -> None:
         S2 = Session(run)  # a second load re-applies the delta from disk
         same = torch.equal(S2.params[name], S.params[name])
         del S2
+        if S.device.type == "cuda":
+            torch.cuda.empty_cache()
+        # relearning probe (P5), run while the edit is active: charged 3 calls, and every weight (edited ones included)
+        # keeps its exact bits. Full element-wise comparison against a CPU copy, not the probe's own checksum.
+        snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
+        used = S.guard.state["calls_used"]
+        pr = S.relearn_probe(steps=(0, 2), n_items=4, max_len=384, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
+        now = dict(S.model.named_parameters())
+        identical = list(now) == list(snap) and all(torch.equal(p.detach().cpu(), snap[n]) for n, p in now.items())
+        same_objects = all(now[n] is p for n, p in S.params.items())
+        no_adapter = not any("lora" in n.lower() for n, _ in S.model.named_modules())
+        charged = S.guard.state["calls_used"] - used
+        del snap
+        print(f"[selftest] relearning probe (LoRA, 2 steps, edit active): charged {charged} calls; weights bit-identical: {identical}; "
+              f"same parameter objects: {same_objects}; adapter removed: {no_adapter}; scored steps {sorted(pr)}; "
+              f"train loss {pr['2']['train_loss']}")
+        assert identical and same_objects and no_adapter and charged == 3 and sorted(pr) == ["0", "2"]
+        # sparse edit of a per-layer norm gain (P5) + the gain-adapter probe: the zeroed entries stay zero, every weight
+        # keeps its bits, the revert restores the gain, and the final norm stays protected
+        gn = "model.layers.4.post_ffn_norm.weight"
+        g0 = S.params[gn].detach().clone()
+        rec2 = S.set_elements(gn, [3, 17], 0.0, rationale="selftest: close two stream coordinates of the layer-4 MLP write")
+        zeroed = bool((S.params[gn][[3, 17]] == 0).all()) and int((S.params[gn] != g0).sum()) <= 2 and rec2["cost"] == 2
+        snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
+        pr2 = S.relearn_probe(steps=(1,), n_items=4, max_len=384, gains=True, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
+        now = dict(S.model.named_parameters())
+        identical2 = list(now) == list(snap) and all(torch.equal(p.detach().cpu(), snap[n]) for n, p in now.items())
+        del snap
+        moved = S.guard.state["probes"][-1]["gains"]
+        S.revert(rec2["id"], "selftest")
+        back = torch.equal(S.params[gn], g0)
+        try:
+            S.set_elements("model.embedding_norm.weight", [0], 0.0, rationale="must be rejected by the guard")
+            raise AssertionError("final-norm edit accepted")
+        except GuardError:
+            pass
+        print(f"[selftest] norm-gain edit: entries zeroed, cost 2: {zeroed}; probe with gain adapters ({moved['n_vectors']} vectors, "
+              f"max |delta| {moved['max_abs_delta']}) leaves weights bit-identical: {identical2}; revert restores the gain: {back}; "
+              f"final norm protected; scored steps {sorted(pr2)}")
+        assert zeroed and identical2 and back and moved["max_abs_delta"] > 0
         S.revert(rec["id"], "selftest")
         restored = torch.equal(S.params[name], orig)
         h.remove()
@@ -269,6 +342,15 @@ def main() -> None:
     p.add_argument("--out", required=True)
     p.add_argument("--tasks", default="full")
     p.add_argument("--cfg", default=None)
+    p = sub.add_parser("probe")
+    p.add_argument("dir")
+    p.add_argument("--out", required=True)
+    p.add_argument("--target", choices=("book", "calculus"), default="calculus")
+    p.add_argument("--steps", default="10,25,50")
+    p.add_argument("--kind", default="mixed")
+    p.add_argument("--n-items", type=int, default=20)
+    p.add_argument("--seed", type=int, default=0)
+    p.add_argument("--cfg", default=None)
     p = sub.add_parser("cert")
     p.add_argument("run")
     p.add_argument("--uri", default=None)
@@ -291,6 +373,8 @@ def main() -> None:
         show(Guard(ROOT / "results/surgery" / a.run).summary(), indent=1)
     elif a.cmd == "evalckpt":
         cmd_evalckpt(a)
+    elif a.cmd == "probe":
+        cmd_probe(a)
     elif a.cmd == "cert":
         from lfm3u.surgery import cert
 

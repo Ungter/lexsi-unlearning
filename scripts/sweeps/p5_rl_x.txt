@@ -1,0 +1,4 @@
+# Paper P5: held-out relearning on the supplementary checkpoints (standard LoRA, forget only; cross-subskill).
+12_relearn.py surg_l2p5x_calc_noise s3://lexsi-hackathon/models/surgery/l2p5x_calc_noise --domain calc --kinds forget
+12_relearn.py surg_l2p5x_calc_scramble s3://lexsi-hackathon/models/surgery/l2p5x_calc_scramble --domain calc --kinds forget
+12_relearn.py xs_surg_l2p5x_calc_scramble s3://lexsi-hackathon/models/surgery/l2p5x_calc_scramble --domain calc --kinds forget_diff,forget --calc-per-kind 81 --gen-bs 125

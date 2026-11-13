@@ -669,7 +669,8 @@ the headline claims, launched in parallel; write while they run; no new methods.
   but the no-unlearning control used the calculus mixture and lost the book anyway (dev verbatim 0.873 → 0.195). Run
   the control student on the book mixture (92% FineWeb, 5% selfgen, 3% book-train, original target as teacher), then
   the strong attack on it. Separates "the unlearned teacher" from "distillation wipes memorisation". About 5 h.
-- [ ] **4. Seeds and CIs for the book relearning ordering** (RESULTS findings 8 and 11: UNDO < all-weight NPO <
+- [x] **4. Seeds and CIs for the book relearning ordering** (done 2026-11-12: 3 attack seeds for every book model under the
+  strong attack, RESULTS §7.9; per-item bootstrap CIs for the audit numbers are in `docs/SCORECARD.md`) (RESULTS findings 8 and 11: UNDO < all-weight NPO <
   localized NPO < RMU ≈ patch; one seed, 25 passages, peak over 4 checkpoints). First add per-passage logging to
   `scripts/12_relearn.py` (it saves only aggregates). Then attack seeds 1 and 2 of full + 200 on retain-only, UNDO
   book, `book_npofull_plain_lr3e-5`, `mnpo_book`, book RMU-l4, `surg_l2_book_b25`, `surg_l2_book_b50`, plus the
@@ -708,9 +709,15 @@ depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, ne
   - H2 (skills harder than facts): partly. Calculus leaks through prompt-side routes (tool 79–100% of the target)
     where the book does not, and comes back training-free for RMU and the patch (the book test is uninformative there:
     the projection removes the memorised text from the target too); both come back under relearning.
-  - H3 (collateral grows with depth): supported in direction; magnitude untested (forgetting not matched).
-  - H4 (localized beats random): refuted on calculus. Mixed on the book: localized NPO beats random at equal lr
-    (3 seeds), random at 2× lr closes most of the gap. Agent-chosen masks no better than random.
+  - H3 (collateral grows with depth): supported in direction; magnitude supported only for algebra vs calculus at
+      matched forgetting (2026-11-12 ladder: forgetting algebra costs calculus 0.07–0.10, forgetting calculus costs nothing
+    below it); arithmetic cannot be matched because NPO's forgetting saturates instead of growing with dose.
+    - H4 (localized beats random): refuted on calculus. Supported on the book for robustness: under the strong attack,
+    localized masks come back less than same-size random masks for both masked RMU (54% vs 67%) and masked NPO (42% vs
+    70%), over 3 attack seeds; random NPO at 2× lr closes most of the gap under LoRA. Agent-chosen masks no better than
+    random.
+    - Architecture (P6, 2026-11-12): no component type holds or undoes the suppression; parameter-matched
+    attention-, conv- or MLP-only LoRA all restore it.
   - H5 (where content concentrates): calculus diffuse; book mildly concentrated in MLPs after global attention. Weak.
   - H6 (surgery at ≤ 0.1% of weights): met under the guard's low-rank count (0.0017%), not by changed bf16 elements
     (2.6–7.1%). State both, or run the element-sparse session.
@@ -943,6 +950,81 @@ here, with the advisor model as a second opinion). All TEST splits, one seed unl
   **Reading:** repair-data filtering halves a pretrained skill and erases fine-tuned text (book control above); it does
   not erase calculus. The skill regrows from calculus examples within 10 steps and partly from other math alone.
   Closes ERASURE_RESEARCH experiment 3; experiment 2 (targeted UNDO) not run.
+
+## 2026-11-12: Last-days experiments launched (user's choice: A, B, C on Vast; D as a background agent; E and the report on hold)
+
+- **A, component-restricted relearning (paper P6).** `12_relearn.py --lora-targets attn|conv|mlp --lora-r N`. Standard LoRA
+  attack (20 forget-dev items, lr 2e-4, steps 0–100) restricted to attention (2.34M params at r16), conv (2.56M), MLP
+  (11.2M at r16; 2.80M at r4, parameter-matched); the all-module attack is 16.1M. Calc RMU c20, patch b25, UNDO calc,
+  calc NPO (one box each), and book RMU-l4, patch b25, all-weight NPO, localized NPO, retain-only (one box).
+  Specs `scripts/sweeps/cr_*.txt`.
+- **B, seeds for the book relearning ordering (TODO 4).** Strong attack (full + 200 chunks) seeds 1–2 for book RMU-l4,
+  all-weight NPO, localized NPO, patches b25/b50; seeds 0–2 for the random-mask NPO model and masked RMU (localized and
+  random). Retain-only and UNDO already have 3 seeds. Specs `sd_{a,b,c}.txt`.
+- **C, matched-dose depth ladder (P1-lite).** Same recipe as `ladder_gen.txt`, dose = epochs: arithmetic e2/4/7/12,
+  algebra e20/30/45, calculus e5/8/12 (existing e20 / e13 / e3). Specs `ladm_*.txt` via `unlearn_sweep.sh`.
+- 12 boxes launched 15:58–16:02 EST (`results/vast/abc_runs.json`). `attack_models.sh` now downloads each checkpoint once
+  per spec (directory keyed by the S3 URI) instead of once per line.
+- **D, agent surgery with a relearning probe (P5).** Background agent (Claude Fable 5.2, xhigh) adds a guard-charged
+  LoRA relearning probe (train split → dev score) to `src/lfm3u/surgery/`, runs a 50-call calculus session
+  (`l2p5_calc_b50`; book if time), on its own Vast box, deadline 2026-11-13 14:00 EST; log in `docs/SURGERY_P5.md`.
+  The test audit and held-out attacks on its patch will be run afterwards.
+
+## 2026-11-12: Results of A, B, C (all 12 boxes done by 18:10 EST; no failures)
+
+- **A, component-restricted relearning.** Parameter-matched attention-only (2.3M), conv-only (2.6M) and MLP-only r4
+  (2.8M) LoRA restore RMU c20 calculus to 0.70–0.75 by 100 steps (all modules 0.72; MLP r16 0.77), UNDO to 0.57–0.67,
+  the b25 patch to 0.70–0.71; at 25 steps the matched ones are within 0.08 of each other (RMU 0.33–0.41) and slower than
+  the larger attacks. Book models likewise (RMU peaks 0.31–0.39 for every restriction; retain-only stays 0.14–0.15).
+  No component type holds the suppression; conv-only LoRA undoes a jam written into MLP `w2`. RESULTS finding 15, §7.9.
+- **B, attack seeds** (strong attack seeds 0–2; retain-only and UNDO from the `rg_*` lr 1e-5 constant grid): recovery
+  UNDO 4% < all-weight NPO 25% < localized NPO 42% ≈ patch b50 43% < RMU 50% (45–53) ≤ masked RMU localized 54% <
+  patch b25 59% (53–65) < masked RMU random 67% < masked NPO random 70%. Localized beats random for both masked methods
+  with non-overlapping seed ranges. Finding 16; scorecard "relearn strong" is now the mean over seeds with the range.
+- **C, matched-dose ladder** (DEV): forgetting does not grow with NPO epochs (arithmetic 0.29–0.37 from e4 to e20, 0.09 at
+  e2 with 33% unfinished retain-math answers; algebra 0.77 → 0.84 from e13 to e45; calculus 0.60–0.65 from e3 to e12).
+  At a matched 0.13–0.18 drop, forgetting algebra costs calculus 0.07–0.10 and arithmetic nothing; forgetting calculus
+  costs nothing below it. Finding 17.
+- **Cost.** $17.5 billed for the 12 boxes by 18:15 EST (charges lag; all destroyed). `13_audit_report.py` labels component-restricted and seeded
+  attacks; `18_scorecard.py` averages the strong attack over seeds and lists the masked-model controls.
+
+## 2026-11-12: P5 agent surgery done; held-out audit launched
+
+- **Agent** (Claude Fable 5.2, xhigh; `docs/SURGERY_P5.md`; own Vast box, $5.9, destroyed 20:06 EST): added a guard-charged
+  LoRA relearning probe (`src/lfm3u/surgery/relearn.py`, `Session.relearn_probe`, train split → dev score, weights
+  bit-identical afterwards per selftest). Calculus session `l2p5_calc_b50` (45 of 50 calls, 34 in 10 probes): rank-7
+  removal on `w2` of all 24 layers (guard 0.0945%, 20.8% of bf16 elements). Dev: 0 / 120 correct but 119 / 120
+  unfinished, so degenerate by the project rule; retain math, MMLU-val, ppl at the target. Dev probe (20 items) at 10 / 25 /
+  50 steps: 0.03 / 0.25 / 0.35 vs target 0.58 / 0.57 / 0.65 and the earlier b50 patch 0.33 / 0.48. Derivative-only probe:
+  integrals 0 at 25 and 50 steps. Book `l2p5_book_b50` (27 calls): rank 12 on `w2` of L0–7, dev verbatim 0.118 / 0.162,
+  probe 0.20 / 0.26 at 25 steps vs 0.31 / 0.35 for the b50 book patch; fails the agent's loop criterion by one passage.
+- **Protocol note.** A rounding bug in the agent's pre-save check closed the calculus run on the plain-removal fallback
+  instead of its selected noise variant; it then saved `l2p5x_calc_noise` and `l2p5x_calc_scramble` with zero extra
+  calls, outside the one-session rule. They are audited as supplementary checkpoints, labelled `l2p5x`, never as the
+  session result.
+- **Held-out audit launched 20:11 EST** (`results/vast/p5_runs.json`): full test audit of all four (`p5_aud`, `p5_aud_x`);
+  standard LoRA relearning, cross-subskill curves (243 problems) and weight attacks on the main calculus patch
+  (`p5_rl_calc`); LoRA + cross-subskill on the supplementary ones (`p5_rl_x`); book LoRA + the strong attack with seeds
+  0–2 (`p5_rl_book`). The public-base projection is not run: the edit spans all 24 layers, where the projection also
+  collapses the target (§7.8), and copying the base `w2` back undoes any such edit by construction.
+- **First held-out results (21:30 EST; relearning boxes still finishing).** Test audit, calculus (150 problems): main patch
+  0.007 with 87% unfinished (degenerate), every prompt-side attack ≤ 0.10 (tool 0.10, best-of-16 0.07; earlier b25 / b50
+  patches 0.68 / 0.54 with the tool), retain math 0.967, MMLU 0.515, IFEval 0.836. Standard LoRA relearning (20 forget-dev
+  items, 100 test problems): 0.01 / 0.01 / 0.21 / 0.23 / 0.29 at 0 / 10 / 25 / 50 / 100 steps (target 0.71; RMU 0.72, b25
+  0.75, UNDO 0.68 at 100); related-data control flat (≤ 0.02). Unfinished answers fall 0.93 → 0.43, so relearning ends the
+  loops without restoring accuracy. Derivative-only (243 problems): derivatives 0.78, integrals 0.00 at every step. Noise /
+  scramble variants: 0.16 / 0.18 at 100 steps. Book patch: verbatim 0.161 (gibberish 0.12), LoRA peak 0.315, strong
+  attack peaks 0.367 / 0.359 / 0.377 over seeds 0–2 (≈ 28% of the gap; b50 43%, RMU 50%, all-weight NPO 25%).
+- **Caveat and follow-up.** The agent selected its edit against a dev probe of the same family as the standard held-out
+  attack (LoRA r16, lr 2e-4, 20 items), so the resistance may be attack-specific. Launched 21:29 EST, off-family attacks
+  (`p5_str_{a,b,c}`, `results/vast/p5_str_runs.json`): all weights + all 133 dev calculus solutions on the main patch and
+  the scramble variant; LoRA on 133 items; LoRA at lr 1e-3.
+- **Off-family results (all P5 boxes done by 23:20 EST, no failures, none left running).** Main patch: all weights + 133
+  items 0.55 / 0.69 / 0.72 / 0.71 at 25 / 50 / 100 / 200 steps (UNDO 0.58 / 0.71 / 0.72 / 0.70); LoRA on 133 items 0.35 /
+  0.61 / 0.67 / 0.71; LoRA lr 1e-3 0.46 / 0.48 / 0.52 / 0.40. Scramble variant, all weights + 133: 0.28 / 0.58 / 0.63 /
+  0.66. Weight attacks on the main patch: ≤ 0.02. **Reading:** the patch resists only the attack family it was selected
+  against (finding 18, RESULTS §7.10); off-family it comes back like UNDO and RMU. Phase 7 stays open: one session, one
+  probe design; a probe that samples attack configurations is the next design, not run.
   - Projection at all 24 layers: uninformative. The same projection collapses the target (book 0.944 → 0.09–0.14, calculus
     w2 0.00, retain math 0.00).
 - **Ops.** `wa_book` logged its self-destroy at 09:47 EST but billed until destroyed by hand at 12:03 (second time today;

@@ -35,9 +35,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 B = 2000
 CALC = ("calc_rmu_l4_c20", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "calc_rmu_l4_c5", "calc_npo", "calc_npo_sam_r0.01", "undo_calc_rmu",
-        "undo_calc_filtered")  # undo_calc_filtered = distilled from the target on calculus-free data (ERASURE_RESEARCH exp. 3)
+        "undo_calc_filtered", "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble")  # undo_calc_filtered = distilled from the target on calculus-free data (ERASURE_RESEARCH exp. 3)
 BOOK = ("book_rmu_l4", "mrmu_book_l4", "surg_l2_book_b25", "surg_l2_book_b50", "book_npo", "book_npofull_plain_lr3e-5", "undo_book_rmu",
-        "undo_book_ctrl")  # undo_book_ctrl = the same distillation from the target itself (no unlearning; DECISIONS TODO 3)
+        "undo_book_ctrl",  # undo_book_ctrl = the same distillation from the target itself (no unlearning; DECISIONS TODO 3)
+        "mnpo_book", "mnpo_book_rand", "mrmu_book_l4_rand", "surg_l2p5_book_b50")  # localized vs same-size random masks (Phase 5)
 CALC_ATTACKS = {"paraphrase": "paraphrase_calc", "notation": "notation_calc", "word problems": "word_calc", "translation": "translation_calc",
                 "jailbreak authority": "jailbreak_calc_authority", "jailbreak prefill": "jailbreak_calc_prefill",
                 "jailbreak roleplay": "jailbreak_calc_roleplay", "tool": "tool_calc", "ICL": "icl_calc", "best-of-16": "bon_calc",
@@ -218,6 +219,9 @@ def main() -> None:
             w = wilson(peak, 100)
             res["relearn_ci"] = (w[0] / t_rl0, w[1] / t_rl0) if w else None
             res["relearn0"] = c[0]["calc_acc"] / t_rl0
+        cs = curve(f"cs_{n}_forget")  # all weights + all 133 dev calculus solutions, 243 per-kind problems
+        if cs and xs_t and 0 in xs_t:
+            res["relearn_strong"] = max(cs[s]["calc_acc"] for s in cs if s > 0) / xs_t[0]["calc_acc"]
         xs = curve(f"xs_{n}", "forget_diff")
         if xs and xs_t and 0 in xs_t:
             ti = bits(xs_t[0]["calc_bits"])[81:162]
@@ -297,9 +301,15 @@ def main() -> None:
             t0, f0 = t_rlb[0]["verbmem_f1"], f_rlb[0]["verbmem_f1"]
             res["relearn"] = (max(c[s]["verbmem_f1"] for s in c if s > 0) - f0) / (t0 - f0)
             res["relearn0"] = (c[0]["verbmem_f1"] - f0) / (t0 - f0)
-            cs = curve(f"rlfx_{n}")
-            if cs:
-                res["relearn_strong"] = (max(cs[s]["verbmem_f1"] for s in cs if s > 0) - f0) / (t0 - f0)
+            peaks = []
+            for nm in (f"rlfx_{n}", f"rlfx_{n}_s0", f"rlfx_{n}_s1", f"rlfx_{n}_s2"):
+                cs = curve(nm)
+                if cs:
+                    peaks.append((max(cs[s]["verbmem_f1"] for s in cs if s > 0) - f0) / (t0 - f0))
+            if peaks:  # strong attack over attack seeds (batch order): mean, with min-max
+                res["relearn_strong"] = sum(peaks) / len(peaks)
+                res["relearn_strong_range"] = (min(peaks), max(peaks)) if len(peaks) > 1 else None
+                res["relearn_strong_n"] = len(peaks)
         out[n] = res
 
     # ---------------------------------------------------------------- markdown
@@ -334,10 +344,14 @@ def main() -> None:
                 last = cell(r.get("xs_integral"), r.get("xs_integral_ci"), extra + (")" if extra else ""))
             else:
                 orr = cell(r.get("trainfree_oracle"))
-                last = cell(r.get("relearn_strong"))
+                rr = r.get("relearn_strong_range")
+                last = cell(r.get("relearn_strong"), None, f" ({rr[0]:.2f}-{rr[1]:.2f}, {r['relearn_strong_n']} seeds)" if rr else "")
+            rl = cell(r.get('relearn'), r.get('relearn_ci'))
+            if dom == "calc" and r.get("relearn_strong") is not None:
+                rl += f"; all-weight, 133 items: {r['relearn_strong']:.2f}"
             md.append(f"| {n} | {cell(r.get('utility_rel'))} | {cell(r.get('direct'), r.get('direct_ci'), '*' if r.get('degenerate') else '')} | "
                       f"{cell(r.get('prompt'), r.get('prompt_ci'), pa)} | {tf} | {bk} | {cell(r.get('baseref'), None, pv('baseref_p'))} | {orr} | "
-                      f"{cell(r.get('relearn'), r.get('relearn_ci'))} | {last} |")
+                      f"{rl} | {last} |")
     md += ["", "Reading: a method that forgets should be near 0 in every column. Prompt-side worst cases are maxima over k attacks "
            "and are biased upward; the training-free and relearning columns are white-box attacks that need no access to the target. "
            "\"w\" = model without edit locality, max over the pre-declared windows L2-4 and L8-15.", ""]

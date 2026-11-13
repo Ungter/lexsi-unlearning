@@ -1,0 +1,3 @@
+# Paper P5: test audit of the two supplementary calculus checkpoints (saved after the session closed; docs/SURGERY_P5.md).
+surg_l2p5x_calc_noise s3://lexsi-hackathon/models/surgery/l2p5x_calc_noise --domains calc
+surg_l2p5x_calc_scramble s3://lexsi-hackathon/models/surgery/l2p5x_calc_scramble --domains calc

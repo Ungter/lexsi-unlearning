@@ -1,0 +1,5 @@
+# Paper P5: book patch, standard LoRA relearning and the strong attack (all weights + 200 chunks), seeds 0-2.
+12_relearn.py surg_l2p5_book_b50 s3://lexsi-hackathon/models/surgery/l2p5_book_b50 --domain book
+12_relearn.py rlfx_surg_l2p5_book_b50 s3://lexsi-hackathon/models/surgery/l2p5_book_b50 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 0
+12_relearn.py rlfx_surg_l2p5_book_b50_s1 s3://lexsi-hackathon/models/surgery/l2p5_book_b50 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1
+12_relearn.py rlfx_surg_l2p5_book_b50_s2 s3://lexsi-hackathon/models/surgery/l2p5_book_b50 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2

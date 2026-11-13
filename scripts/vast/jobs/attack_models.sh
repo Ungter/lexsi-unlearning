@@ -39,7 +39,7 @@ for SPEC in "$@"; do
     KIND=${SCRIPT%.py}; KIND=${KIND#*_}
     case $KIND in abliterate) KIND=abl ;; esac
     if { [ "$KIND" = relearn ] || [ "$KIND" = local_abl ]; } && [[ $EXTRA == *calc* ]]; then wait_selfgen_dev || { failed "$NAME: no selfgen_dev"; continue; }; fi
-    DIR="models/$NAME"
+    DIR="models/$(echo "$REF" | md5sum | cut -c1-12)"  # one download per checkpoint, shared by the lines of a spec
     MP=$(fetch_model "$REF" "$DIR") || { failed "$NAME: download"; continue; }
     stage "$SCRIPT $NAME ($REF) $EXTRA"
     eval "$PY scripts/$SCRIPT --model \"$MP\" --name \"$NAME\" --out \"results/$KIND/$NAME\" $EXTRA" < /dev/null || failed "$SCRIPT $NAME"

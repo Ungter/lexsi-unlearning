@@ -70,6 +70,23 @@ attack, depth ladder).
     on 243 other test problems: 0.43 (RMU) and 0.60 (patch) against 0.77–0.79 for the target. The same attack finds
     nothing to remove in NPO, UNDO or the removal-style patch. On the book it is uninformative: on the target the same projection
     removes the memorised text itself. (§7.7; TEST, one seed)
+15. **No component type of the hybrid holds the suppression.** Parameter-matched LoRA on attention only, conv only or
+    MLP only (2.3–2.8M parameters) restores RMU-unlearned calculus to the target level within 100 steps, as all-module
+    LoRA does; a conv-only attack undoes a jam written into MLP weights. Recovery speed follows the number of trainable
+    parameters, not the component type, for every unlearned model and both targets. (§7.9)
+16. **Localized masks resist the strong relearning attack better than random masks; the method ordering holds over
+    attack seeds.** Masked RMU on the book comes back 54% (52–55%) with attribution-selected units vs 67% (64–71%) with
+    random units of the same size; masked NPO 42% vs 70%. Across three attack seeds: UNDO 4% < all-weight NPO 25% <
+    localized NPO 42% ≈ removal-style patch 43% < RMU 50% ≤ rank-one patch 59%. (§7.9)
+17. **At matched forgetting, collateral damage still flows only to dependent skills, and NPO's forgetting does not grow
+    with dose.** Forgetting algebra or calculus by 0.13–0.18 leaves the skills below untouched; forgetting algebra costs
+    calculus 0.07–0.10. More NPO epochs do not deepen forgetting (arithmetic plateaus at ~0.3, algebra drifts back up).
+    (§7.9; DEV, one seed)
+18. **An editor given a relearning probe found an edit that resists exactly that probe and nothing else.** The agent's
+    24-layer calculus edit comes back to only 0.29 under the standard 20-item LoRA attack (every other method 0.68–0.75)
+    and no prompt-side attack exceeds 0.10, but with 133 items, a 5× learning rate or all-weight fine-tuning it returns
+    to 0.52–0.72, level with UNDO and RMU; it is also degenerate (87% unfinished). Relearning robustness must be tested
+    across attack configurations, not on the one used for selection. (§7.10)
 14. **Distillation removes what the repair data leaves out, but only fine-tuned text, not a pretrained skill.**
     Distilling the target into a 25%-shrunk copy on data without the book's test passages puts them at the
     never-trained floor and keeps them there under the strongest relearning attack (3% back), with no unlearning step.
@@ -764,6 +781,127 @@ the calculus self-generated answers and the 12,855 FineWeb documents that use ca
   3% back under the strong attack). Filtering the repair data removes recently fine-tuned text; it only halves a skill
   learned in pretraining. The RMU teacher is what drives calculus to 0, and that 0 is the jam: undone by 20 mixed
   examples, not by derivatives or other data.
+
+### 7.9 Last-days experiments: component-restricted relearning, attack seeds, matched-dose ladder (2026-11-12)
+
+Launched 15:58–16:02 EST, all done by 18:10 (12 boxes; `results/vast/abc_runs.json`). TEST splits except the ladder (DEV).
+
+**A. Component-restricted relearning (paper P6).** The standard LoRA attack (20 forget-dev items, lr 2e-4, batch 4)
+restricted to one component type: attention (q/k/v/o of the 10 attention blocks), conv (in/out_proj of the 14 conv
+blocks), MLP (w1/w2/w3 of all 24 layers). Calculus accuracy (100 problems) at 25 / 100 steps:
+
+| model | all modules, r16 (16.1M params) | attention, r16 (2.3M) | conv, r16 (2.6M) | MLP, r4 (2.8M) | MLP, r16 (11.2M) |
+|---|---|---|---|---|---|
+| RMU-l4 c20 (start 0.00) | 0.74 / 0.72 | 0.41 / 0.70 | 0.35 / 0.71 | 0.33 / 0.75 | 0.67 / 0.77 |
+| agent patch b25 (0.12) | 0.73 / 0.75 | 0.67 / 0.71 | 0.64 / 0.70 | 0.67 / 0.71 | 0.74 / 0.75 |
+| UNDO, RMU teacher (0.00) | 0.58 / 0.68 | 0.18 / 0.61 | 0.07 / 0.57 | 0.15 / 0.67 | 0.50 / 0.66 |
+| calc NPO (0.50) | 0.65 / 0.69 | 0.65 / 0.71 | 0.67 / 0.68 | 0.69 / 0.68 | 0.65 / 0.70 |
+| target (0.71) | 0.74 / 0.78 | | | | |
+
+Book, peak verbatim F1 over steps 10–100 (retain-only floor 0.14, target 0.944):
+
+| model | all modules | attention | conv | MLP r4 | MLP r16 |
+|---|---|---|---|---|---|
+| book RMU-l4 | 0.39 | 0.37 | 0.39 | 0.31 | 0.37 |
+| agent patch b25 | 0.46 | 0.50 | 0.37 | 0.45 | 0.41 |
+| all-weight NPO-KL | 0.22 | 0.21 | 0.23 | 0.24 | 0.24 |
+| localized NPO | 0.34 | 0.33 | 0.33 | 0.35 | 0.35 |
+| retain-only (control) | 0.14 | 0.15 | 0.14 | 0.14 | 0.14 |
+
+- **No component type holds the suppression.** Each of attention-only, conv-only and MLP-only LoRA, at about the same
+  parameter count, restores RMU calculus to the target level by 100 steps, and UNDO to 0.57–0.67. Conv-only LoRA, which
+  touches neither attention nor any MLP, undoes a jam that RMU wrote into the MLP `w2` of layers 2–4: the model routes
+  around it.
+- **Speed tracks trainable parameters, not component type.** At 25 steps the three parameter-matched attacks are within
+  0.08 of each other on RMU (0.33–0.41) and the larger MLP r16 and all-module attacks are faster (0.67–0.74). The same
+  holds for UNDO and for the book models; the never-trained control stays at the floor under every restriction.
+- So on this hybrid the architecture angle has a negative answer: suppression and its undoing are not tied to the conv,
+  attention or MLP blocks. (Borobia et al. 2026 found attention-only LoRA most effective on other hybrids; we see no
+  component advantage at matched size.)
+
+**B. Attack seeds for the book relearning ordering (DECISIONS TODO 4).** Strong attack (all weights, lr 1e-5, 20
+forget-dev items + 200 forget-text chunks, steps 25–200); peak verbatim F1 for attack seeds 0 / 1 / 2 (the seed changes
+batch order; the unlearned model is the same), recovery = (peak − 0.148) / (0.944 − 0.148):
+
+| model | start | peak, seeds 0 / 1 / 2 | recovery, mean (range) |
+|---|---|---|---|
+| retain-only (never trained) | 0.148 | 0.149 / 0.156 / 0.146 | 0% (0–1%) |
+| UNDO, RMU teacher | 0.135 | 0.177 / 0.172 / 0.182 | 4% (3–4%) |
+| all-weight NPO-KL | 0.172 | 0.338 / 0.342 / 0.345 | 25% (24–25%) |
+| localized NPO (masked, 0.5%) | 0.243 | 0.478 / 0.487 / 0.485 | 42% (42–43%) |
+| agent patch b50 (removal-style) | 0.148 | 0.507 / 0.497 / 0.454 | 43% (39–45%) |
+| book RMU-l4 | 0.133 | 0.567 / 0.504 / 0.554 | 50% (45–53%) |
+| masked RMU, localized units | 0.083 | 0.557 / 0.583 / 0.580 | 54% (52–55%) |
+| agent patch b25 (rank-one writes) | 0.134 | 0.567 / 0.626 / 0.663 | 59% (53–65%) |
+| masked RMU, random units | 0.098 | 0.709 / 0.660 / 0.679 | 67% (64–71%) |
+| masked NPO, random units | 0.373 | 0.655 / 0.738 / 0.708 | 70% (64–74%) |
+
+- The ordering of findings 8 and 11 holds across attack seeds: UNDO < all-weight NPO < localized NPO ≈ removal-style
+  patch < RMU ≤ rank-one patch. RMU and the b25 patch overlap (45–53% vs 53–65%).
+- **Localized masks come back less than random masks of the same size under the strong attack**, for masked RMU (54%
+  vs 67%, non-overlapping ranges, same starting point 0.08 vs 0.10) and for masked NPO (42% vs 70%; the random mask also
+  forgot less to begin with, 0.37 vs 0.24). This extends the earlier LoRA result (§6, 3 training seeds for NPO) to the
+  strong attacker and to RMU. Only attack seeds vary here, not unlearning seeds.
+
+**C. Matched-dose depth ladder (paper P1-lite, H3 magnitude).** NPO-KL LoRA, lr 5e-4, 400 forget items, retain =
+general chat only (as `ladder_gen`), dose = epochs. DEV accuracy per topic (90 problems each; calculus 240):
+
+| forgotten | epochs | arithmetic | algebra | precalculus | calculus | MMLU-val |
+|---|---|---|---|---|---|---|
+| none (target) | - | 0.989 | 0.944 | 0.978 | 0.754 | 0.515 |
+| arithmetic | 2 | **0.089** | 0.467 | 0.722 | 0.613 | 0.505 |
+| arithmetic | 4 / 7 / 12 / 20 | **0.30 / 0.29 / 0.32 / 0.37** | 0.68 / 0.72 / 0.68 / 0.73 | 0.84 / 0.87 / 0.91 / 0.91 | 0.68 / 0.66 / 0.73 / 0.68 | 0.50–0.51 |
+| algebra | 13 / 20 / 30 / 45 | 0.99 / 0.98 / 0.99 / 0.99 | **0.77 / 0.80 / 0.82 / 0.84** | 0.96 / 0.99 / 0.98 / 0.97 | 0.65 / 0.69 / 0.67 / 0.70 | 0.495–0.505 |
+| calculus | 3 / 5 / 8 / 12 | 1.00 / 1.00 / 0.99 / 0.98 | 0.96 / 0.94 / 0.96 / 0.98 | 0.98 / 0.98 / 0.96 / 0.98 | **0.62 / 0.63 / 0.65 / 0.60** | 0.505–0.52 |
+
+- **Dose does not control forgetting with this recipe.** More epochs do not deepen it: arithmetic plateaus at 0.29–0.37
+  from 4 to 20 epochs (2 epochs give 0.09, with 33% of retain-math answers unfinished), algebra recovers slightly with
+  dose (0.77 → 0.84), calculus stays at 0.60–0.65. A likely cause is that the NPO forget loss is bounded and saturates
+  once the forget likelihood is low, while the general-chat KL term keeps pulling the model back; we did not test this.
+- **At matched forgetting the collateral still flows one way.** Algebra and calculus can be compared at a 0.13–0.18
+  drop: forgetting algebra (e13 / e20) leaves arithmetic at 0.98–0.99 and costs calculus 0.07–0.10; forgetting calculus
+  (e3 / e12) leaves algebra (0.96–0.98) and arithmetic (0.98–1.00) untouched. Arithmetic cannot be brought to that level
+  (its smallest drop is 0.62), and at that level it costs algebra 0.21–0.27, precalculus 0.07–0.13 and calculus 0.03–0.09.
+- Caveats: one seed, DEV, 90 problems per topic (±0.04–0.05); every NPO run here lowers calculus to 0.60–0.73 whatever
+  the forget topic, so calculus differences under ~0.07 may be generic perturbation rather than dependency. H3's
+  direction is supported again; its magnitude is supported only for the algebra–calculus pair.
+
+### 7.10 P5: agent surgery with a relearning probe, and its held-out audit (2026-11-12)
+
+The editor agent (Claude Fable 5.2, `docs/SURGERY_P5.md`) got a guard-charged relearning probe (LoRA r16, lr 2e-4, batch
+4, 20 train-split calculus solutions, scored on dev) and 50 calls, with the goal of an edit that survives relearning.
+It chose a rank-7 removal on `w2` of all 24 layers (guard cost 0.0945%; 20.8% of bf16 elements change). Two
+supplementary checkpoints (noise and scramble writes in place of the removed directions) were saved after the session
+closed, outside the one-session protocol; they are reported as `l2p5x`, never as the session result.
+
+**Test audit (calculus, 150 problems).** Direct 0.007 with 87% of answers unfinished, so degenerate under PLAN §2.3 (the
+earlier b50 patch was degenerate too, 88%). Every prompt-side attack ≤ 0.10, including the tool loophole (0.10; b25 /
+b50 patches 0.68 / 0.54). Retain math 0.967, MMLU 0.515, IFEval 0.836. INT8 / INT4 / weight noise: ≤ 0.02.
+
+**Relearning, accuracy on 100 test problems (target 0.71):**
+
+| attack | steps | `l2p5_calc_b50` | scramble (`l2p5x`) | UNDO (RMU teacher) | RMU-l4 c20 |
+|---|---|---|---|---|---|
+| standard LoRA (r16, lr 2e-4, 20 items) = the agent's probe family | 25 / 100 | **0.21 / 0.29** | 0.02 / 0.18 | 0.58 / 0.68 | 0.74 / 0.72 |
+| LoRA r16, lr 2e-4, 133 items | 25 / 100 / 200 | 0.35 / 0.67 / 0.71 | - | - | - |
+| LoRA r16, lr 1e-3, 20 items | 25 / 100 | 0.46 / 0.52 | - | - | - |
+| all weights, lr 1e-5, 133 items (243 problems) | 25 / 100 | 0.55 / 0.72 | 0.28 / 0.63 | 0.58 / 0.72 | - |
+| related data (20 other-math items, LoRA) | 100 | 0.02 | - | 0.00 | 0.00 |
+| derivative-only (68 items, LoRA): integrals | 100 | 0.00 | 0.00 | 0.00 | 0.00 |
+
+- **The resistance is specific to the attack the agent optimised against.** Under the probe's own configuration the
+  patch reaches only 0.29 after 100 steps, the lowest of any method. Change one knob (more data, a higher learning rate,
+  or all weights) and it returns to 0.67–0.72, level with UNDO and RMU. The agent selected its edit on a dev
+  relearning probe of the same family as the standard held-out attack, so the held-out number measured overfitting to
+  that probe, not robustness. Relearning resistance claimed from one attack configuration, as in much of the literature
+  (`docs/ERASURE_RESEARCH.md` on Qi et al. 2024), can be an artefact of that configuration.
+- What the edit does change: it is the first calculus edit that no prompt-side attack gets past (tool 0.10), and
+  derivative-only relearning leaves integrals at 0. It still fails the non-degeneracy bar.
+- **Book patch `l2p5_book_b50`** (rank 12 on `w2` of L0–7): verbatim 0.161 (floor 0.145), repetition flag 12%;
+  LoRA peak 0.315; strong attack peaks 0.367 / 0.359 / 0.377 over three attack seeds (28%; earlier b50 patch 43%, RMU 50%,
+  all-weight NPO 25%).
+- This keeps Phase 7 empirically open rather than settled: one session, one agent, one probe design. A probe that
+  samples attack configurations (data size, learning rate, all-weight vs LoRA) is the obvious next design.
 
 ## 8. Limitations (so far)
 

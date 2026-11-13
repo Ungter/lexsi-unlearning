@@ -1,0 +1,5 @@
+# Paper P1-lite / H3 magnitude: matched-dose depth ladder. Same recipe as ladder_gen.txt (NPO-KL LoRA lr 5e-4, 400 forget
+# items, retain = general chat only), dose = epochs. Existing points: arithmetic e20 (0.989 -> 0.367), algebra e13
+# (0.944 -> 0.767), calculus e3 (0.754 -> 0.621). New doses bracket a common forgetting level so collateral can be read
+# at matched forgetting (dose-response per rung, interpolated).
+ladm_calc_e12 --target calculus --method npo --lr 5e-4 --epochs 12 --n-forget 400 --retain-scope general

@@ -1,0 +1,10 @@
+# DECISIONS TODO 4: seeds for the book relearning ordering under the strong attack (all weights, fp32 AdamW lr 1e-5,
+# 20 forget-dev items + 200 forget-text chunks, steps 0/25/50/100/200; seed 0 = results/relearn/rlfx_*). Retain-only and
+# UNDO already have seeds 0-2 (rg_*_lr1e-5_constant_s*). Masked-RMU / masked-NPO localized vs random-mask models were never
+# attacked this way: seeds 0-2. Per-passage F1 is logged for bootstrap CIs.
+12_relearn.py rlfx_book_rmu_l4_s1 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1
+12_relearn.py rlfx_book_rmu_l4_s2 s3://lexsi-hackathon/models/script-20261109-093739-book_npo_rmu-cb3b/book_rmu_l4_c20_a100 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2
+12_relearn.py rlfx_book_npofull_plain_lr3e-5_s1 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1
+12_relearn.py rlfx_book_npofull_plain_lr3e-5_s2 s3://lexsi-hackathon/models/script-20261109-215205-s2b-8a55/book_npofull_plain_lr3e-5 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2
+12_relearn.py rlfx_mnpo_book_s1 s3://lexsi-hackathon/models/script-20261109-180411-m4-0b87/mnpo_book_lr1e-3 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 1
+12_relearn.py rlfx_mnpo_book_s2 s3://lexsi-hackathon/models/script-20261109-180411-m4-0b87/mnpo_book_lr1e-3 --domain book --kinds forget --full --lr 1e-5 --book-extra 200 --steps 0,25,50,100,200 --seed 2

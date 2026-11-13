@@ -63,6 +63,7 @@ def write(run: str, uri: str | None = None) -> Path:
             a = e["args"]
             op = e["op"] + (f" ({a.get('axis')}, dir `{a.get('direction')}`)" if e["op"] == "ablate_direction" else
                             f" ({len(a.get('units', []))} units × {a.get('factor')})" if e["op"] == "scale_units" else
+                            f" ({a.get('n_elements')} elements, {a.get('label', '')})" if e["op"] == "set_elements" else
                             f" (rank {a.get('rank')}, {a.get('label', '')})")
             out.append(f"| {e['id']} | `{e['param'].replace('model.layers.', 'L').replace('.weight', '')}` | {op} | {e['cost']} | {e['rationale']} |")
     rev = [e for e in st["edits"] if e["status"] == "reverted"]

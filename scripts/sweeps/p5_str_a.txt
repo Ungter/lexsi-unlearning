@@ -1,0 +1,4 @@
+# Paper P5 follow-up: stronger attacks on the relearning-resistant surgery patch. The agent optimised its edit against a
+# dev probe of the SAME family as the standard held-out attack (LoRA r16, lr 2e-4, 20 items), so test it off-family:
+# all weights + all 133 self-generated calculus dev solutions (as cs_undo_*), LoRA on 133 items, LoRA at 5x the lr.
+12_relearn.py cs_surg_l2p5_calc_b50_forget s3://lexsi-hackathon/models/surgery/l2p5_calc_b50 --domain calc --kinds forget --full --lr 1e-5 --forget-n 200 --calc-per-kind 81 --gen-bs 125 --steps 0,25,50,100,200

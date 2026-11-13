@@ -1,0 +1,5 @@
+# Paper P5: held-out relearning attacks on the main calculus patch: standard LoRA (forget + related), cross-subskill
+# (derivative-only vs mixed, 243 per-kind test problems), weight attacks.
+12_relearn.py surg_l2p5_calc_b50 s3://lexsi-hackathon/models/surgery/l2p5_calc_b50 --domain calc
+12_relearn.py xs_surg_l2p5_calc_b50 s3://lexsi-hackathon/models/surgery/l2p5_calc_b50 --domain calc --kinds forget_diff,forget --calc-per-kind 81 --gen-bs 125
+20_weight_attacks.py wa_surg_l2p5_calc_b50 s3://lexsi-hackathon/models/surgery/l2p5_calc_b50 --domain calc

@@ -21,8 +21,9 @@ from pathlib import Path
 
 REFS = ("base", "target", "b0", "retain")
 BOOK_UNL = ("book_rmu_l4", "book_npo", "book_npofull_plain_lr3e-5", "mrmu_book_l4", "mrmu_book_l4_rand",  # mrmu_* = Phase-5 masked RMU
-            "surg_l2_book_b25", "surg_l2_book_b50", "surg_l2_book_b10", "surg_base_book")  # surg_* = Phase-7 weight-surgery patches (docs/SURGERY.md)
-CALC_UNL = ("calc_npo", "calc_npo_sam_r0.01", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "surg_base_calc")
+            "surg_l2_book_b25", "surg_l2_book_b50", "surg_l2_book_b10", "surg_base_book", "surg_l2p5_book_b50")  # surg_* = Phase-7 weight-surgery patches (docs/SURGERY.md)
+CALC_UNL = ("calc_npo", "calc_npo_sam_r0.01", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "surg_base_calc",
+            "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble")  # l2p5* = P5 sessions with a relearning probe
 
 
 def load(p: Path):
@@ -288,6 +289,10 @@ def main() -> None:
             key = "calc_acc" if d["domain"] == "calc" else "verbmem_f1"
             ra = d.get("args", {})
             atk = ("full" + (f"+{ra['book_extra']}" if ra.get("book_extra") else "")) if ra.get("full") else "LoRA"
+            if not ra.get("full") and ra.get("lora_targets", "all") != "all":
+                atk += f" {ra['lora_targets']} r{ra.get('lora_r', 16)}"
+            if ra.get("seed"):
+                atk += f" seed {ra['seed']}"
             for kind, c in d["curves"].items():
                 pts = {p["step"]: p for p in c["curve"]}
                 md.append(f"| {n} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200, 250, 500, 1000)) + " |")

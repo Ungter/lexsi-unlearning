@@ -13,6 +13,7 @@ Stronger attacker (follow-up to the LoRA-only robustness results):
   --full          fine-tune every weight (fp32 master weights, bf16 autocast, AdamW) instead of a rank-16 LoRA
   --book-extra N  book forget curve: add N chunks of book/raw_forget_train (the unlearning forget text, held-out
                   verbmem passages already cut out) to the 20 forget-dev items
+Component-restricted attack (paper P6): --lora-targets attn|conv|mlp (optionally --lora-r to match parameter counts).
 Related-data attack (TODO 5): --kinds related --related-n N (N retain-math solutions instead of 20) and --kinds web
 (--web-n generic FineWeb documents), usually with --full and a longer --steps schedule.
 Cross-subskill control (calculus has no never-knew model): --kinds forget_diff trains on 20 derivative-only solutions;
@@ -39,6 +40,9 @@ from lfm3u.audit.mathgrade import grade_item  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
 
 LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj", "out_proj", "w1", "w2", "w3"]
+# component-restricted attacks (paper P6): which component type of the hybrid holds / undoes the suppression?
+LORA_GROUPS = {"all": LORA_TARGETS, "attn": ["q_proj", "k_proj", "v_proj", "o_proj"], "conv": ["in_proj", "out_proj"],
+               "mlp": ["w1", "w2", "w3"]}
 
 
 def load_helpers():
@@ -148,8 +152,12 @@ def train_curve(a, tok, kind: str, items: list[dict], tasks) -> dict:
         # checkpointing only acts in train mode, so evaluation still generates with the KV cache
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     else:
-        model = get_peft_model(base, LoraConfig(r=16, lora_alpha=32, lora_dropout=0.0, target_modules=LORA_TARGETS, task_type="CAUSAL_LM"))
+        targets = [m for g in a.lora_targets.split(",") for m in LORA_GROUPS.get(g, [g])]
+        model = get_peft_model(base, LoraConfig(r=a.lora_r, lora_alpha=2 * a.lora_r, lora_dropout=0.0, target_modules=targets,
+                                                task_type="CAUSAL_LM"))
     params = [p for p in model.parameters() if p.requires_grad]
+    n_trainable = sum(p.numel() for p in params)
+    log(f"{a.name} {kind}: {n_trainable:,} trainable parameters")
     opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.0)
     steps = sorted({int(s) for s in a.steps.split(",")})
     total = max(steps)
@@ -206,7 +214,7 @@ def train_curve(a, tok, kind: str, items: list[dict], tasks) -> dict:
     del model, base, opt
     if dev == "cuda":
         torch.cuda.empty_cache()
-    return {"kind": kind, "n_items": len(items), "curve": curve, "losses": [round(x, 4) for x in losses]}
+    return {"kind": kind, "n_items": len(items), "n_trainable": n_trainable, "curve": curve, "losses": [round(x, 4) for x in losses]}
 
 
 def main() -> None:
@@ -234,6 +242,10 @@ def main() -> None:
     ap.add_argument("--related-n", type=int, default=20, help="calc related curve: number of retain-math solutions")
     ap.add_argument("--forget-n", type=int, default=0, help="calc forget curves: use the first N solutions (0 = the standard 7/7/6)")
     ap.add_argument("--schedule", choices=("constant", "cosine"), default="constant")
+    ap.add_argument("--lora-targets", default="all",
+                    help="LoRA modules: comma list of groups (all, attn, conv, mlp) or module names; attn = q/k/v/o_proj of the 10 "
+                         "attention blocks, conv = in_proj/out_proj of the 14 conv blocks, mlp = w1/w2/w3 of all 24 layers")
+    ap.add_argument("--lora-r", type=int, default=16, help="LoRA rank (alpha = 2r, as the default 16/32)")
     ap.add_argument("--warmup", type=int, default=0, help="linear warmup steps")
     ap.add_argument("--web", default="s3://lexsi-hackathon/eval/fineweb_anchor.jsonl", help="kind 'web': generic text source")
     ap.add_argument("--web-n", type=int, default=1000, help="kind 'web': number of documents")

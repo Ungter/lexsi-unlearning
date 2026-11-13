@@ -1,0 +1,3 @@
+# Paper P5: full Phase-6 test audit of the relearning-probe surgery patches (docs/SURGERY_P5.md).
+surg_l2p5_calc_b50 s3://lexsi-hackathon/models/surgery/l2p5_calc_b50 --domains calc
+surg_l2p5_book_b50 s3://lexsi-hackathon/models/surgery/l2p5_book_b50 --domains book
