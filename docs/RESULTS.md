@@ -717,8 +717,9 @@ retain-math solutions or 1,000 generic FineWeb documents; 100 calculus test prob
 
 - Other data does not bring calculus back, even with ten times the data and steps of the earlier LoRA control and all
   weights trainable. Web text leaves the target's calculus intact, so that attacker had a full ceiling. This differs
-  from Łucki et al. 2024 and Doshi & Stickland 2024 on transformers; the setups differ (model, RMU layer and
-  coefficient, data, schedule), so we do not attribute it to the architecture.
+  from Łucki et al. 2024 (LoRA r128 on 10 unrelated samples recovers most of RMU's WMDP knowledge) and Doshi & Cooper
+  Stickland 2024 (generic web text) on transformers; the setups differ (model, RMU layer and coefficient, data,
+  schedule), so we do not attribute it to the architecture.
 - It is not evidence of erasure: the same RMU model returns to 0.51 with no training through the base-reference
   projection, and to the target level with 20 calculus examples. The suppression is reachable by weights and by
   calculus data, not by fine-tuning on other data.

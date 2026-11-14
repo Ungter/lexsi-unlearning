@@ -31,7 +31,7 @@ were estimated.
 > 4. Prompt-side and tool routes, and internal readouts at control level, are necessary but not sufficient: activation
 >    audits can miss jams whose weights never reach the activations (D:763-768).
 >
-> **Erasure can only be falsified.** The attack space is open-ended: Qi et al. (2412.07097) **[V+]** turned published
+> **Erasure can only be falsified.** The attack space is open-ended: Qi et al. (ICLR 2025, 2412.07097) **[V+]** turned published
 > "durable" TAR and RepNoise results into failures by changing only seeds, the trainer implementation, warmup + cosine
 > decay, or the prompt template. Thudi et al. (USENIX Security 2022, 2110.11891) **[V]** conclude unlearning is
 > well-defined only at the level of the algorithm that was run, not by inspecting the resulting weights. Cooper et al.
@@ -114,9 +114,9 @@ Liquid's LFM2-8B-A1B is an MoE (8.3B total, 1.5B active) if one is needed.
 
 **2.6 Tamper resistance / meta-learned anti-relearning.** *Mechanism:* simulate fine-tuning attacks in an inner loop and
 optimise the released weights so they fail: MLAC (Henderson et al., AIES 2023, 2211.14946 **[V]**, BERT-scale), SOPHON
-(Deng et al., IEEE S&P 2024, 2404.12699 **[V]**, classification and generation models), TAR (RW §6), MUDMAN (Sondej et
-al., NeurIPS 2025, 2506.12484 **[V]**: disruption masking + gradient normalisation + meta-learning, "outperforms TAR by
-40%"). *Breaks (independent):* Qi et al. **[V+]** on the public TAR-Bio-v2: rerunning the paper's own attack configs with
+(Deng et al., IEEE S&P 2024, 2404.12699 **[V]**, classification and generation models), TAR (RW §6), MUDMAN
+(Sondej et al., NeurIPS 2025 CCFM workshop, 2506.12484 **[V]**: disruption masking + gradient normalisation +
+meta-learning, "outperforms TAR by 40%"). *Breaks (independent):* Qi et al. **[V+]** on the public TAR-Bio-v2: rerunning the paper's own attack configs with
 5 seeds reaches >60% WMDP-Bio, close to the undefended Llama-3-8B-Instruct; 100-step warmup + cosine decay recovers it
 consistently (TAR seems to rely on exploding gradients in the first steps); LoRA largely breaks it; fine-tuning on the
 retain set also recovers; TAR-v2 garbles benign biology and GSM8K falls to near zero. Che et al. (RW §1) include TAR,
@@ -142,7 +142,7 @@ distilled. *Ours (independent):* book strong attack 4% (R:411); calculus relearn
 / 50 / 100 LoRA steps (R:376; peak 0.96 of target, SC:16) but shows no training-free or derivative-only recovery
 (R:650, R:631-634); most utility loss is under-distillation, since the no-unlearning control also loses 9.5 MMLU / 15
 IFEval points (R:367-369). *Successors:* UNDIAL (2402.10052, cited by UNDO) is weaker; Lee's retrospective ("Bitter
-Lessons from Distillation Robustifies Unlearning", LessWrong, 28 Nov 2025 **[V+]**): post-hoc robust unlearning "may
+Lessons from Distillation Robustifies Unlearning", LessWrong, 27 Nov 2025 **[V+]**): post-hoc robust unlearning "may
 not be achievable at all, at least not efficiently"; enough damage is necessary, not sufficient. *Fit:* (a) works here;
 (b) partial here, with global α capped by our distillation budget; architecture-neutral (we ran it on LFM3).
 
@@ -151,8 +151,8 @@ was a warm-start trick; UNDO's β = 0 is pure shrinking. Without retraining, noi
 2025, 2412.01784 **[V]**) show weight noise improves sandbagging models by disrupting the suppression. *Fit:* defence only
 inside a damage + distil pipeline; add noise to our audit as a cheap training-free attack.
 
-**2.10 Pruning / zeroing units; SAE-feature ablation.** Lo, Cohen, Barez (ACL Findings 2024, 2401.01814 **[V]**): pruned
-concepts return within a few epochs of retraining, relocated to earlier layers and to semantically similar neurons.
+**2.10 Pruning / zeroing units; SAE-feature ablation.** Lo, Barez, Cohen (Findings of ACL 2024, 2401.01814 **[V]**): pruned
+concepts quickly return on retraining, relocated to earlier layers and to semantically similar neurons.
 MathNeuro and Selective Pruning have no robustness tests (RW §3). Farrell, Lau, Conmy (2410.19278 **[V]**): zero-ablating
 SAE features is ineffective, negative scaling is needed, side effects ≥ RMU. DSG (Muhamed et al., COLM 2025, 2504.08192
 **[V]**) claims stronger resistance to relearning, but it is an inference-time guardrail an open-weight attacker removes.
@@ -161,7 +161,7 @@ models training-free. Ours: localized masks forget no better than random for cal
 its own for (a) and (b); useful only as the first step of a re-init + distil chain (§3, C1). Hybrid: sandwich norms
 rescale what remains after zeroing (R:663-665).
 
-**2.11 Linear concept erasure.** LEACE (Belrose et al., 2306.03819 **[V]**; NeurIPS 2023 venue not checked): closed-form
+**2.11 Linear concept erasure.** LEACE (Belrose et al., NeurIPS 2023, 2306.03819 **[V]**): closed-form
 projection that provably defeats every linear probe, applied at every layer as "concept scrubbing"; INLP (Ravfogel et
 al., ACL 2020, 2004.07667 **[V]**). *Why it is not enough:* the guarantee is linear and site-local; kernelized erasure
 stops the chosen nonlinear adversary but "does not transfer to different nonlinear adversaries" (Ravfogel et al., EMNLP
@@ -171,15 +171,15 @@ exactly what our §7.7 attack inverts (RMU's jam is one direction per layer, R:6
 linear concept; keep as a diagnostic. Residual-only erasure can miss content in conv state (RW §10).
 
 **2.12 Model editing (ROME, MEMIT, AlphaEdit).** Rank-one / closed-form MLP updates (ROME, NeurIPS 2022, 2202.05262
-**[V]**; MEMIT, 2210.07229 **[V]**, ICLR 2023 venue not checked; AlphaEdit, ICLR 2025, 2410.02355 **[V]**, null-space
-constrained). *Breaks:* whitebox attacks recover 38% of ROME/MEMIT-deleted facts (RW §7, Patil et al.); Youssef et al.
+**[V]**; MEMIT, ICLR 2023, 2210.07229 **[V]**; AlphaEdit, ICLR 2025, 2410.02355 **[V]**, null-space constrained).
+*Breaks:* whitebox and blackbox attacks recover ROME-"deleted" facts from GPT-J up to 38% of the time (RW §7, Patil et al.); Youssef et al.
 (ICLR 2026, 2505.20819 **[V]**) infer the edited object from the weights alone (up to 99%) and reverse up to 94% of edits
 without training. Ours: the agent's rank-one patch is the top singular vector of W2 − W2_target (|cos| 0.997) and is
 switched off by projection (R:658-660). No relearning study of AlphaEdit-as-deletion found. *Fit:* facts only; neither
 target is a set of triples.
 
-**2.13 Task-arithmetic negation.** θ − λ(θ_ft − θ) (Ilharco et al., ICLR 2023, 2212.04089 **[V]**); NegMerge
-(2410.05583, listing only). No LLM relearning study found; a VLA-policy audit (2608.04692 **[V]**) calls negation
+**2.13 Task-arithmetic negation.** θ − λ(θ_ft − θ) (Ilharco et al., ICLR 2023, 2212.04089 **[V]**); NegMerge (ICML 2025,
+2410.05583 **[V]**; image classifiers only). No LLM relearning study found; a VLA-policy audit (2608.04692 **[V]**) calls negation
 "temporary behavioral suppression" and its relearning probe is consistent with masking. *Fit:* (a) exact negation is
 trivial here (target − (target − retain-only) = retain-only); a book-only delta is suppression-like. (b) there is no
 calculus task vector to subtract.
@@ -190,7 +190,7 @@ drop in post-relearning answer probability than GradDiff, NPO, SimNPO, RMU and U
 holds under an adaptive attack. Minor Component Unlearning (2605.11685 **[V]**): relearning reverses changes
 along dominant representation components, so target minor ones. Targeted LAT (Sheshadri et al., 2407.15549 **[V]**):
 unlearning more robust to re-learning. Labs: Anthropic (filtering, SGTM, GRAM above); OpenAI evaluates open-weight risk
-by malicious fine-tuning and claims no removal (Wallace et al., 2508.03153 **[V]**); EleutherAI / UK AISI: Deep
+by malicious fine-tuning and does not attempt removal (Wallace et al., 2508.03153 **[V]**); EleutherAI / UK AISI: Deep
 Ignorance. No Google DeepMind, Apollo or Redwood post claiming durable LLM erasure was found in this pass.
 
 ## 3. Chains that could get closer

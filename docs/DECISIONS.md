@@ -679,7 +679,7 @@ the headline claims, launched in parallel; write while they run; no new methods.
 
 - [x] **5. Stronger related-data attack on the calculus jam.** Done 2026-11-12 (`scripts/sweeps/r5_*.txt`; result in the
   entry of that date): calculus does not come back. Our related-retain control (LoRA, 20 other-math items,
-  100 steps) never restores calc RMU c20, but Łucki et al. 2024 (10 retain-set samples), Doshi & Stickland 2024
+  100 steps) never restores calc RMU c20, but Łucki et al. 2024 (10 retain-set samples), Doshi & Cooper Stickland 2024
   (OpenWebText, 100–1,000 steps) and Wang et al. 2025 (downstream fine-tuning incl. math) restore RMU/NPO
   (`docs/RELATED_WORK.md` §2). Before claiming a contrast, attack with full-weight fine-tuning for about 500–1,000 steps
   on (a) other-math selfgen solutions and (b) generic web text (FineWeb). `scripts/12_relearn.py` already has `--full`;
@@ -694,12 +694,14 @@ depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, ne
 - [ ] **Leaderboard.** `docs/AUDIT.md` §4 leaves relearning out of worst recovery, and its book column is
   one-question noise (21 knowmem questions; `surg_l2_book_b50` "2.00" is one question). Fold relearning recovery in
   (PLAN 6.6 counts attack 10); report forget_rel, worst recovery and utility_rel separately, with CIs from item 4.
-- [ ] **Plots (PLAN 8.1).** Relearning curves (main figure); forget vs utility with relearning recovery as marker
+- [x] **Plots (PLAN 8.1).** Done 2026-11-13 (`scripts/21_report_figures.py`: relearning curves, trade-off scatter with
+  worst recovery as marker size, depth-ladder heatmap, surgery bars; plus `docs/figures/scorecard.png`). J-lens heatmaps
+  not redrawn (see `docs/JSPACE_REPORT.md`). Relearning curves (main figure); forget vs utility with relearning recovery as marker
   size; depth-ladder heatmap; J-lens heatmaps (base vs best method vs prompt baseline); surgery result vs call
   budget. H5 bars exist (`results/localize/*/mass.png`).
 - [ ] **Certificates (PLAN 7.7).** `results/surgery/*/certificate.md` still say "draft, dev metrics only": add test
   metrics and worst-case recovery including relearning.
-- [ ] **Hypothesis verdicts H1–H6 (PLAN 8.2).** Draft from current evidence, to revise after items 1–4:
+- [x] **Hypothesis verdicts H1–H6 (PLAN 8.2).** Final wording in `REPORT.md` §5 (2026-11-13); the draft below is superseded. Draft from current evidence, to revise after items 1–4:
   - H1 (suppress, not erase): supported by relearning, and since 2026-11-12 without any training: one projection per
     edited layer, using the open base weights, restores 72% of the target's calculus from RMU and 92% from the agent's
     patch (derivative-only relearning also restores integrals on the patches). "Base lens still recovers the tokens" not
@@ -721,8 +723,15 @@ depth ladder (H3 magnitude), linear probes (PLAN 6.5). Skip: Target C, SCRUB, ne
   - H5 (where content concentrates): calculus diffuse; book mildly concentrated in MLPs after global attention. Weak.
   - H6 (surgery at ≤ 0.1% of weights): met under the guard's low-rank count (0.0017%), not by changed bf16 elements
     (2.6–7.1%). State both, or run the element-sparse session.
-- [ ] **`REPORT.md` + PDF (PLAN 8.3):** setup, results, attacks, limitations.
-- [ ] **Related work (`docs/RELATED_WORK.md`, folded into `REPORT.md`).** No transformer replication: too much differs
+- [ ] **`REPORT.md` + PDF (PLAN 8.3):** setup, results, attacks, limitations. Full draft written 2026-11-13 with verified
+  references and the narrowed novelty sentence. Two-column LaTeX version in `paper/main.tex` (built with tectonic to
+  `paper/main.pdf`, 7 pages; figures read from `docs/figures/`).
+- [x] **Related work (`docs/RELATED_WORK.md`, folded into `REPORT.md`).** Done 2026-11-13: 126 references checked
+  against primary sources by a background agent (`docs/CITATION_CHECK.md`); 30 errors fixed (13 titles, 1 venue,
+  names/dates, 13 content over-claims, notably Łucki et al. used LoRA r128, not full fine-tuning, and recover "most",
+  not all). The novelty claim was narrowed to: unlearning studies have almost exclusively evaluated dense or MoE
+  transformers; no unlearning study on a gated short-convolution hybrid or across mixer types was found (search
+  incomplete: Semantic Scholar rate-limited). 12 items remain UNVERIFIED, listed there. No transformer replication: too much differs
   between model families to attribute any difference to architecture. Instead cite published transformer results,
   comparing the direction of an effect only (never their numbers in our tables, never "LFM3 is more robust than
   transformers"); where we differ (e.g. related-data fine-tuning does not restore our RMU jam, Łucki et al. 2024
@@ -789,7 +798,7 @@ architecture as the setting. Nothing below has started. If only three are done: 
     RMU `param_substring`, thinking toggle).
 
 Do not invest further in the book target: its knowledge half has no gap left to remove (target fact 0.19 vs base
-0.05, n = 21) and its verbatim result repeats Hu et al. 2025. Keep it as the fact-unlearning comparison.
+0.05, n = 21) and its verbatim result repeats Hu et al. 2024 (ICLR 2025). Keep it as the fact-unlearning comparison.
 
 ## 2026-11-12: TODO 1 and 2 done (cross-subskill relearning, training-free recovery); public-base attack; scorecard
 
@@ -869,7 +878,7 @@ here, with the advisor model as a second opinion). All TEST splits, one seed unl
     fine-tune itself erodes calculus (0.73 → 0.66 / 0.57 / 0.51 / 0.39), but at steps 100–250 the target still has
     0.57–0.66 while RMU has 0.00.
   - So "related data does not restore the jam" now holds under a ~10× stronger attacker (all weights, 1,000 steps, 10×
-    the data), in contrast to Łucki et al. 2024 and Doshi & Stickland 2024 on transformers; state the setup differences
+    the data), in contrast to Łucki et al. 2024 and Doshi & Cooper Stickland 2024 on transformers; state the setup differences
     first (model, RMU layer and coefficient, data, schedule) and leave architecture open (RELATED_WORK §2). The same
     model comes back with no training at all through the base-reference projection, so it is hidden, just not reachable
     by fine-tuning on other data.
