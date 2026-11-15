@@ -6,6 +6,10 @@ Results summary for the paper: [`docs/RESULTS.md`](docs/RESULTS.md). Decision lo
 
 This branch ports the pipeline to CohereLabs/tiny-aya-global (book + algebra unlearning, attacks, UNDO, agent weight surgery, AuditKIT re-evaluation).
 
+- Paper: [`paper/main.pdf`](paper/main.pdf). Hugging Face collection (6 checkpoints + artifacts dataset, public):
+  https://huggingface.co/collections/jungter/tiny-aya-global-unlearning-lexsi-hackathon-track-2b ; dataset:
+  https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts . No MUSE book text is committed or
+  published; checkpoints that reproduce the book are withheld (`docs/REPORT_AYA.md` §10).
 - Write-up: [`docs/REPORT_AYA.md`](docs/REPORT_AYA.md). Decision log with run ids and costs: [`docs/AYA.md`](docs/AYA.md). Surgery sessions: [`docs/SURGERY_AYA_BOOK.md`](docs/SURGERY_AYA_BOOK.md), [`docs/SURGERY_AYA_ALG.md`](docs/SURGERY_AYA_ALG.md).
 - Model table used by every report script: `scripts/aya_models.py`. Run specs: `scripts/sweeps/aya_*.txt` (one line per run).
 - Reproduce the GPU runs wave by wave (Vast.ai; `.env` with the Vast and S3 keys; set `TARGET_URI` / `RETAIN_URI` to the wave-0 checkpoints before wave 1):

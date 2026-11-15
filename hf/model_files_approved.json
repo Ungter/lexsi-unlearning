@@ -1,0 +1,49 @@
+{
+ "retain": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "cd98275e0786e6fca40f6f062e28b136483be6a4b784dab3fb6d2f053a79045e"
+ },
+ "book_npofull_plain_lr3e-5": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "lfm3u_meta.json": "77669193db02f980a28131a81f3a14bab33c547097df554d2aab0022e21e8e47",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "0174e681966a9ff4e4e5defe7b01f0d483effbb6046cb38efcc3575ae9d45f39"
+ },
+ "aya_l2_book_b50": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "lfm3u_meta.json": "26e8ff148cfaf92b19f8d996f7544837918bcf7876934aa55d29b69180514bce",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "cd98275e0786e6fca40f6f062e28b136483be6a4b784dab3fb6d2f053a79045e"
+ },
+ "aya_l2_book_basedelta_b25": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "lfm3u_meta.json": "7bc2fec2171384588ec6e50b3611cb1b69bdace21ad1ac3159a47ef6c3bb0369",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "cd98275e0786e6fca40f6f062e28b136483be6a4b784dab3fb6d2f053a79045e"
+ },
+ "undo_book_npofull": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "lfm3u_meta.json": "5dd7f8e0142d49a3bb77771ec678ab5856e750a541421b47d05bc67f2d6a9866",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "0174e681966a9ff4e4e5defe7b01f0d483effbb6046cb38efcc3575ae9d45f39"
+ },
+ "undo_alg_npo_sam": {
+  "chat_template.jinja": "2147c474f41b522b7296f74692b9f31e45f49a31465960576a9d321339c5915a",
+  "config.json": "23dcfd3f79ce38a0f208a5b1beb55da25551539810a91f0e70f31c9fd0fd0987",
+  "generation_config.json": "9f4fd3fc75c223b67e041828444537e0d33b7ea4d6ecb1caaac6218d0f679ef7",
+  "lfm3u_meta.json": "1fefaf78e4f9877cb05e3bf9a4ee6fdd4309727b7ab558bd383cb510acb2f5c0",
+  "tokenizer.json": "2227ea9c52e8afb3f98bfed2679008b275f2664de69dfde174b374389eb0225d",
+  "tokenizer_config.json": "0174e681966a9ff4e4e5defe7b01f0d483effbb6046cb38efcc3575ae9d45f39"
+ }
+}

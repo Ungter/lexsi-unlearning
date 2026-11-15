@@ -1,0 +1,67 @@
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/audit/sm_audit/audit.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/relearn/sm_rl_book/relearn.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/relearn/sm_rl_calc/relearn.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/relearn/sm_rl_full/relearn.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/abl/sm_abl_book/abl.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/abl/sm_abl_calc/abl.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/weight_attacks/sm_wa/weight_attacks.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/local_abl/sm_labl/local_abl.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/dev/sm_deveval/dev.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/agreement.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/fit.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/hidden.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/inject.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/validation.json
+book-text strings redacted (sanitised copy kept)	results/jspace/base/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/book_npofull_baselens/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/book_npofull_ownlens/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/retain/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/surg_book_b50_baselens/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/surg_book_b50_ownlens/hidden.json
+book-text strings redacted (sanitised copy kept)	results/jspace/target/hidden.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/hidden.png
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/validation_calculus.png
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/validation_harry_potter.png
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/jspace/_smoke/validation_multihop.png
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/alg_npo_sam_r0.1/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/alg_npo_sam_r0.1/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/aya_l2_book_b50/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/aya_l2_book_b50/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/base/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/base/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/book_npofull_plain_lr3e-5/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/book_npofull_plain_lr3e-5/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/retain/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/retain/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/target/runs/book_verbmem_all.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/auditkit/target/runs/book_verbmem_test.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_ablate_book/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_ga/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_gakl/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_graddiff/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_npo/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_npo_full/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_npo_full_mask/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_npo_sam/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_rmu/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/unlearn/sm_rmu_mask/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/undo/sm_undo_book/train.json
+excluded by rule (book data, generations, probes, deltas, smoke tests)	results/undo/sm_undo_calc/train.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-031314-ftA15t-9ff8/target-A15.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-032441-ftB8r-e97b/retain-B8.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-032441-ftB8t-ae24/target-B8.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-032757-ftA15r2-0b5d/retain-A15.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-071045-ftA15t2-03e9/target-A15.json
+book-text strings redacted (sanitised copy kept)	results/finetune/script-20261114-071047-ftA15r3-0471/retain-A15.json
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_b50/steps/04_s04_probe_a.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_b50/steps/05_s05_probe_deep.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_b50/steps/07_s07_probe_mid.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_b50/steps/15_s15_max_and_save.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_basedelta_b25/steps/05_b05_probe.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_l2_book_basedelta_b25/steps/07_b07_combo.out
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/b05_probe.log
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/b07_combo.log
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/s04_probe_a.log
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/s05_probe_deep.log
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/s07_probe_mid.log
+contains a 12-word span of the MUSE-Books data	results/surgery/aya_book_box_logs/s15_max_and_save.log

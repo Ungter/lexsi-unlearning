@@ -754,17 +754,29 @@ base model's. A closed-model price comparison was not made (open item).
 
 ## 10. Artifacts
 
-- **HF models collection:** open item (`python scripts/hf_publish.py --namespace <ns> --execute`, after the authors'
-  OK). Published (allowlist decided by the lead): the retain-only reference; book all-weight NPO
-  `book_npofull_plain_lr3e-5`; the book agent patch `aya_l2_book_b50`; the base-delta patch
-  `aya_l2_book_basedelta_b25` (labelled protocol-privileged); the book UNDO student `undo_book_npofull` (with its
-  utility cost stated); the algebra UNDO student `undo_alg_npo_sam` (its distillation also erased the book, verbatim
-  0.162). Withheld: the target and every algebra-unlearned model derived from it (they reproduce the copyrighted book
+- **HF collection (public, un-gated):** https://huggingface.co/collections/jungter/tiny-aya-global-unlearning-lexsi-hackathon-track-2b
+  (6 models, the artifacts dataset, and the base model as reference). Uploaded with `scripts/hf_publish.py`
+  (`scripts/vast/jobs/hf_upload.sh`, run `script-20261115-002701-hfup-30c4`, ≈ $0.33); cards in `hf/`.
+- **HF models** (cc-by-nc-4.0, base_model CohereLabs/tiny-aya-global, non-commercial, modified version):
+  [retain-only reference](https://huggingface.co/jungter/tiny-aya-global-muse-retain-only);
+  [book all-weight NPO](https://huggingface.co/jungter/tiny-aya-global-unlearn-book-npo) (`book_npofull_plain_lr3e-5`);
+  [book agent patch b50](https://huggingface.co/jungter/tiny-aya-global-unlearn-book-surgery-b50);
+  [base-delta patch b25](https://huggingface.co/jungter/tiny-aya-global-unlearn-book-surgery-basedelta-b25) (labelled
+  protocol-privileged); [book UNDO student](https://huggingface.co/jungter/tiny-aya-global-unlearn-book-undo) (utility
+  cost stated); [algebra UNDO student](https://huggingface.co/jungter/tiny-aya-global-unlearn-algebra-undo) (its
+  distillation also erased the book, verbatim 0.162). `scripts/hf_publish.py` publishes only this allowlist and refuses
+  a model whose test verbatim F1 exceeds the floor + 0.05 or whose book relearning peak exceeds 0.30 (review M10).
+  Withheld: the target and every algebra-unlearned model derived from it (they reproduce the copyrighted book
   verbatim, ROUGE-L ~0.89; all-weight algebra NPO 0.26, still above the floor); book GA (82% of the gap returns after
   10 LoRA steps); masked NPO and RMU l18 (direct or relearned recall too high: RMU direct 0.405, masked NPO relearns
   to 0.375); book SAM-NPO (degenerate).
-- **HF datasets collection:** open item (attack sets without book text, result JSONs, reports, sweep specs, run logs).
-- **GitHub repo:** open item (link; branch `aya`).
+- **HF dataset:** https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts (853 files, 72.6 MB):
+  algebra / other-math attack sets, generated math splits, result JSONs (incl. `results/verbatk/`), scorecard and audit
+  tables, figures, training and Vast run logs, surgery traces, the write-up and paper. Excluded: all MUSE text, every
+  `generations/` folder, the hand-written book paraphrases, and 12 log files that quote book passages (12-word-span
+  scan against all 29 MUSE files; 13 JSON files kept with book strings replaced). Lists: `hf/dataset_files.txt`,
+  `hf/dataset_dropped.txt`.
+- **GitHub repo:** https://github.com/Ungter/lexsi-unlearning/tree/aya (branch `aya`; the LFM3 study is on `main`).
 - Demo / Space: optional, not made.
 
 ## 11. Documentation and reproduction
@@ -838,7 +850,5 @@ For the authors:
 2. **TODO** LLM-usage statement: approximate share of LLM-written code and text.
 3. **TODO** Declaration of work outside the hackathon: confirm the statement in §11.
 4. **TODO** Acknowledgements (Lexsi Labs, Cohere Labs, Vast.ai credits if any).
-5. **TODO** HF models and datasets collections (`scripts/hf_publish.py`; model allowlist decided, §10) and the GitHub
-   link (branch `aya`); optional demo / Space.
-6. **TODO** (optional) Closed-model ROI comparison (input/output tokens × list price per million tokens for one or two
+5. **TODO** (optional) Closed-model ROI comparison (input/output tokens × list price per million tokens for one or two
    API models, scaled to 1,000 replies, next to §7); no data was collected for it.

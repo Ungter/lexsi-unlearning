@@ -24,7 +24,7 @@
 \usepackage[font=small,labelfont=bf]{caption}
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
-\usepackage{url}
+\usepackage{xurl}
 
 \graphicspath{{../docs/figures/}{docs/figures/}}
 \setlist{nosep,leftmargin=*}
@@ -669,8 +669,10 @@ gap returns after 10 LoRA steps), masked NPO and RMU l18 (direct or relearned re
 \section*{Artifacts}
 
 Code, run specifications, attack sets without book text and the decision log:
-\url{https://github.com/Ungter/lexsi-unlearning/tree/aya}. Hugging Face models collection: \url{TODO-HF}; datasets
-collection (attack sets without book text, result files, reports, sweep specifications, run logs): \url{TODO-HF}.
+\url{https://github.com/Ungter/lexsi-unlearning/tree/aya}. Hugging Face collection (six models, the dataset and the
+base model): \url{https://huggingface.co/collections/jungter/tiny-aya-global-unlearning-lexsi-hackathon-track-2b};
+dataset (attack sets without book text, result files, reports, sweep specifications, run logs):
+\url{https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts}.
 Published checkpoints: the retain-only reference, book all-weight NPO, the book agent patch b50, the base-delta patch b25
 (labelled protocol-privileged), the book UNDO student (with its utility cost stated) and the algebra UNDO student (whose
 distillation also erased the book, verbatim 0.162).
