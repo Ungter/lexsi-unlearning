@@ -7,12 +7,15 @@
 #                                  (--mask work/localize/T/scores.pt waits up to 90 min for $LOCALIZE_URI/T/scores.pt)
 # A failing line is logged to results/unlearn/failed.txt and the sweep continues. Unlearn lines wait (up to 90 min)
 # for $SELFGEN_URI when it does not exist yet, so sweep boxes can start together with the selfgen box.
+# Tiny Aya (aya branch): the LFM3 defaults (lfm3-muse-target-A, selfgen_v3, localize/v1, phase2-20261109.tgz) hold LFM3
+# checkpoints / LFM3 token ids and must not be reused. TARGET_URI is required (the Aya MUSE target from 03_finetune,
+# e.g. $BUCKET_URI/models/<run>/aya-muse-target); the other artefacts default to the aya/ prefix of the bucket.
 set -uo pipefail
 source scripts/vast/common.sh
-TARGET_URI=${TARGET_URI:-$BUCKET_URI/models/script-20261109-044309/lfm3-muse-target-A}
-SELFGEN_URI=${SELFGEN_URI:-$BUCKET_URI/unlearn/selfgen_v3.jsonl}
-DATA_URI=${DATA_URI:-$BUCKET_URI/data/phase2-20261109.tgz}
-LOCALIZE_URI=${LOCALIZE_URI:-$BUCKET_URI/localize/v1}
+TARGET_URI=${TARGET_URI:?set TARGET_URI to the Tiny Aya MUSE target checkpoint (s3://.../aya-muse-target)}
+SELFGEN_URI=${SELFGEN_URI:-$BUCKET_URI/aya/unlearn/selfgen.jsonl}
+DATA_URI=${DATA_URI:-$BUCKET_URI/aya/data/phase2.tgz}
+LOCALIZE_URI=${LOCALIZE_URI:-$BUCKET_URI/aya/localize/v1}
 mkdir -p work models results/unlearn results/dev
 
 stage "install safetune"

@@ -1,0 +1,5 @@
+# verbatim attacks box A
+target s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15
+retain s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15
+book_npofull_plain_lr3e-5 s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5
+book_npo_sam_r0.1_lr3e-5 s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npo_sam_r0.1_lr3e-5

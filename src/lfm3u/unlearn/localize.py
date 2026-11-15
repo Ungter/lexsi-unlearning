@@ -1,9 +1,11 @@
 """Attribution localizer (PLAN 5.1, 5.2, 5.5): which units carry the forget target.
 
-Units are the input features of the three matrices that write to the residual stream:
-  mlp   hidden unit i of layer l = input column i of model.layers[l].feed_forward.w2      (7,680 per layer, 2,048 params)
+Units are the input features of the two matrices that write to the residual stream (Tiny Aya: every layer is a parallel
+attention + MLP block, h = x + attn(ln(x)) + mlp(ln(x)); there are no conv layers, so the LFM3 'conv' kind is gone):
+  mlp   hidden unit i of layer l = input column i of model.layers[l].mlp.down_proj        (11,008 per layer, 2,048 params)
   head  attention head h of layer l = input columns h*128:(h+1)*128 of self_attn.o_proj (16 per layer, 262,144 params)
-  conv  channel c of conv layer l = input column c of conv.out_proj                      (2,048 per layer, 2,048 params)
+The log-probabilities are computed from the final hidden states with lm_head applied only at the labelled positions
+(262k vocabulary: full fp32 logits cost 1 MB per token).
 
 Score (attribution patching against the retain-mean activation). Per item, m = mean log p(answer tokens), and
   s(unit) = mean over items of  sum over positions and the unit's features of  (a - a_bar_retain) * dm/da,
@@ -30,7 +32,9 @@ import random
 import time
 from pathlib import Path
 
-KINDS = ("mlp", "head", "conv")
+from lfm3u import arch
+
+KINDS = ("mlp", "head")  # LFM3 also had "conv"; a kinds filter that still names it simply matches nothing
 
 
 def log(msg: str) -> None:
@@ -38,15 +42,20 @@ def log(msg: str) -> None:
 
 
 def writer_modules(model) -> list[tuple[int, str, str, object]]:
-    """[(layer, kind, module name, module)] for every residual-stream writer."""
+    """[(layer, kind, module name, module)] for every residual-stream writer: down_proj (mlp) and o_proj (head) per layer."""
     out = []
-    for l, layer in enumerate(model.model.layers):
-        out.append((l, "mlp", f"model.layers.{l}.feed_forward.w2", layer.feed_forward.w2))
-        if hasattr(layer, "self_attn"):
-            out.append((l, "head", f"model.layers.{l}.self_attn.o_proj", layer.self_attn.o_proj))
-        else:
-            out.append((l, "conv", f"model.layers.{l}.conv.out_proj", layer.conv.out_proj))
+    for l in range(arch.n_layers(model)):
+        out.append((l, "mlp", f"model.layers.{l}.{arch.MLP_WRITER}", arch.module(model, l, arch.MLP_WRITER)))
+        out.append((l, "head", f"model.layers.{l}.{arch.ATTN_WRITER}", arch.module(model, l, arch.ATTN_WRITER)))
     return out
+
+
+def _logit_scale(model) -> float:
+    """Cohere2ForCausalLM multiplies the lm_head output by logit_scale; needed when the head is applied by hand."""
+    s = getattr(model, "logit_scale", None)
+    if s is None:
+        s = getattr(model.config, "logit_scale", 1.0)
+    return float(s if s is not None else 1.0)
 
 
 def _capture(mods, store: dict):
@@ -68,7 +77,7 @@ def retain_means(model, batches, mods, device) -> dict:
         with torch.no_grad():
             for b in batches:
                 att = b["attention_mask"].to(device)
-                model(input_ids=b["input_ids"].to(device), attention_mask=att)
+                model.model(input_ids=b["input_ids"].to(device), attention_mask=att, use_cache=False)  # no logits needed
                 w = att[..., None].to(torch.float64)
                 for n in sums:
                     sums[n] += (store[n].to(torch.float64) * w).sum((0, 1))
@@ -89,16 +98,20 @@ def attribution(model, batches, mods, means: dict, device) -> tuple[dict, int]:
     n_items, store = 0, {}
     handles = _capture(mods, store)
     emb = model.get_input_embeddings()
+    scale = _logit_scale(model)
     try:
         for b in batches:
             ids, att, lab = (b[k].to(device) for k in ("input_ids", "attention_mask", "labels"))
             # inputs that require grad make every activation part of the graph without trainable parameters
             x0 = emb(ids).detach().requires_grad_(True)
-            logits = model(inputs_embeds=x0, attention_mask=att).logits
+            h = model.model(inputs_embeds=x0, attention_mask=att, use_cache=False).last_hidden_state
             tgt = lab[:, 1:]
             mask = tgt != -100
-            lp = -F.cross_entropy(logits[:, :-1].float().transpose(1, 2), tgt.clamp(min=0), reduction="none")
-            m_item = (lp * mask).sum(1) / mask.sum(1).clamp(min=1)
+            # logits only at the labelled positions (same loss as the full-logit version, a fraction of the memory)
+            logits = model.lm_head(h[:, :-1][mask]).float() * scale
+            lp_sel = -F.cross_entropy(logits, tgt[mask], reduction="none")
+            lp = torch.zeros(tgt.shape, dtype=lp_sel.dtype, device=lp_sel.device).masked_scatter(mask, lp_sel)
+            m_item = lp.sum(1) / mask.sum(1).clamp(min=1)
             xs = [store[n] for n in names]
             grads = torch.autograd.grad(m_item.sum(), xs)
             w = att[..., None].float()
@@ -106,7 +119,7 @@ def attribution(model, batches, mods, means: dict, device) -> tuple[dict, int]:
                 for n, x, g in zip(names, xs, grads):
                     acc[n] += (((x.detach().float() - means[n]) * g.float()) * w).sum((0, 1)).double()
             n_items += ids.shape[0]
-            del logits, lp, xs, grads, x0
+            del h, logits, lp, lp_sel, xs, grads, x0
             store.clear()
     finally:
         for h in handles:
@@ -114,7 +127,7 @@ def attribution(model, batches, mods, means: dict, device) -> tuple[dict, int]:
     return {n: (a / max(n_items, 1)).float().cpu() for n, a in acc.items()}, n_items
 
 
-def score(model, tok, forget_items, retain_items, *, budget_tokens: int = 4096, device="cuda") -> dict:
+def score(model, tok, forget_items, retain_items, *, budget_tokens: int = 2048, device="cuda") -> dict:
     """The scores.pt payload: {"meta": ..., "modules": {name: {layer, kind, d_out, forget, retain}}}."""
     from lfm3u.unlearn.data import pack
 
@@ -129,7 +142,8 @@ def score(model, tok, forget_items, retain_items, *, budget_tokens: int = 4096, 
     s_r, n_r = attribution(model, rb, mods, means, device)
     log(f"retain attribution over {n_r} items ({time.time() - t0:.0f}s)")
     cfg = model.config
-    meta = {"layer_types": list(cfg.layer_types), "head_dim": int(getattr(cfg, "head_dim", cfg.hidden_size // cfg.num_attention_heads)),
+    hd = getattr(cfg, "head_dim", None) or cfg.hidden_size // cfg.num_attention_heads
+    meta = {"layer_types": arch.layer_types(cfg), "head_dim": int(hd), "model_family": arch.FAMILY,
             "d_model": int(cfg.hidden_size), "n_params": int(sum(p.numel() for p in model.parameters())),
             "n_forget": n_f, "n_retain": n_r, "seconds": round(time.time() - t0, 1)}
     modules = {n: {"layer": l, "kind": k, "d_out": int(m.out_features), "forget": s_f[n], "retain": s_r[n]} for l, k, n, m in mods}
@@ -198,9 +212,10 @@ def column_masks(scores: dict, sel: dict) -> dict:
 
 
 def category(entry: dict, layer_types: list[str]) -> str:
+    """Component type. Tiny Aya blocks are parallel, so the MLP is labelled by its layer's attention type (not 'after')."""
     t = layer_types[entry["layer"]]
-    after = {"conv": "conv", "sliding_attention": "sliding", "full_attention": "global"}.get(t, t)
-    return {"mlp": f"MLP after {after}", "head": f"heads ({after})", "conv": "conv channels"}[entry["kind"]]
+    kind = {"conv": "conv", "sliding_attention": "sliding", "full_attention": "global"}.get(t, t)
+    return {"mlp": f"MLP ({kind} layer)", "head": f"heads ({kind})", "conv": "conv channels"}[entry["kind"]]
 
 
 def mass(scores: dict, lam: float = 1.0) -> dict:
@@ -250,7 +265,7 @@ def plot_mass(m: dict, path: Path, title: str) -> None:
     layers = sorted(m["by_layer"], key=int)
     ax[1].bar([int(l) for l in layers], [m["by_layer"][l]["specific_share"] for l in layers],
               color=[colors.get(m["by_layer"][l]["type"], "k") for l in layers])
-    ax[1].set_xlabel("layer (gray conv, orange sliding attention, blue global attention)")
+    ax[1].set_xlabel("layer (orange sliding-window attention, blue global attention)")
     ax[1].set_ylabel("share of forget-specific mass")
     ax[1].set_title("forget-specific attribution by layer", fontsize=10)
     fig.tight_layout()
@@ -262,18 +277,19 @@ def main(argv=None) -> None:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    from lfm3u.unlearn.data import interleave, raw_items, selfgen_items
+    from lfm3u.unlearn.data import LADDER, interleave, raw_items, selfgen_items
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
-    ap.add_argument("--target", choices=("book", "calculus"), required=True)
+    ap.add_argument("--target", choices=("book", "calculus", *LADDER), required=True,
+                    help="arithmetic/algebra/precalculus: forget = that topic's selfgen answers, retain = the other math")
     ap.add_argument("--data", default="data")
     ap.add_argument("--selfgen", default="work/selfgen.jsonl")
     ap.add_argument("--out", required=True)
     ap.add_argument("--n-forget", type=int, default=400)
     ap.add_argument("--n-retain", type=int, default=400)
     ap.add_argument("--max-len", type=int, default=2048)
-    ap.add_argument("--batch-tokens", type=int, default=4096)
+    ap.add_argument("--batch-tokens", type=int, default=2048, help="LFM3 used 4096; Tiny Aya has 1.5x the depth and 2x the params")
     ap.add_argument("--dtype", default="float32", choices=("float32", "bfloat16"))
     ap.add_argument("--frac", type=float, default=0.005, help="default selection budget, fraction of all parameters")
     ap.add_argument("--seed", type=int, default=0)
@@ -289,14 +305,21 @@ def main(argv=None) -> None:
     rng = random.Random(a.seed)
     tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
     data = Path(a.data)
-    general = selfgen_items(Path(a.selfgen), "general", a.max_len) if Path(a.selfgen).is_file() else []
+    # tok: book chunks are re-tokenized from row["text"] (stored input_ids are LFM3 ids); selfgen rows are checked to be
+    # Aya-format (prompt ends in <|START_RESPONSE|>)
+    general = selfgen_items(Path(a.selfgen), "general", a.max_len, tok=tok) if Path(a.selfgen).is_file() else []
     if a.target == "book":
-        forget = raw_items(data / "book/raw_forget_train.jsonl", tok.bos_token_id)
-        main_retain = raw_items(data / "book/raw_retain1_train.jsonl", tok.bos_token_id) + \
-            raw_items(data / "book/raw_retain2_train.jsonl", tok.bos_token_id)
-    else:
-        forget = selfgen_items(Path(a.selfgen), "calculus", a.max_len)
-        main_retain = selfgen_items(Path(a.selfgen), "retain_math", a.max_len)
+        forget = raw_items(data / "book/raw_forget_train.jsonl", tok.bos_token_id, tok, a.max_len)
+        main_retain = raw_items(data / "book/raw_retain1_train.jsonl", tok.bos_token_id, tok, a.max_len) + \
+            raw_items(data / "book/raw_retain2_train.jsonl", tok.bos_token_id, tok, a.max_len)
+    elif a.target == "calculus":
+        forget = selfgen_items(Path(a.selfgen), "calculus", a.max_len, tok=tok)
+        main_retain = selfgen_items(Path(a.selfgen), "retain_math", a.max_len, tok=tok)
+    else:  # same split as lfm3u.unlearn.data.build for the math topics (Tiny Aya math target: algebra)
+        others = tuple(t for t in LADDER if t != a.target)
+        forget = selfgen_items(Path(a.selfgen), "retain_math", a.max_len, topics=(a.target,), tok=tok)
+        main_retain = selfgen_items(Path(a.selfgen), "retain_math", a.max_len, topics=others, tok=tok) + \
+            selfgen_items(Path(a.selfgen), "calculus", a.max_len, tok=tok)
     forget = [x for x in forget if len(x["ids"]) <= a.max_len]
     for xs in (forget, main_retain, general):
         rng.shuffle(xs)

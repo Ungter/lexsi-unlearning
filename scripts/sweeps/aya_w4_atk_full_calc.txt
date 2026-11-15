@@ -1,0 +1,7 @@
+# Tiny Aya wave 4 (Nov 14 14:55 EST): full-weight algebra relearning (attack 10, --full). These OOMed on 96 GB in wave 3
+# (algebra items are longer than book chunks: ~350-token preamble + solution); rerun unchanged (batch 4) on a >= 130 GB
+# box, with the unedited target as the reference curve and the algebra surgery patch.
+12_relearn.py rlf_target_calc s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15 --domain calc --kinds forget --full --lr 1e-5
+12_relearn.py rlf_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domain calc --kinds forget --full --lr 1e-5
+12_relearn.py rlf_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc --kinds forget --full --lr 1e-5
+12_relearn.py rlf_surg_alg_b50 s3://lexsi-hackathon/models/surgery/aya_l2_alg_b50 --domain calc --kinds forget --full --lr 1e-5

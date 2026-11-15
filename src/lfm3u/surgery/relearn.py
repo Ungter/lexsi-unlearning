@@ -3,14 +3,18 @@ capability back? This is the attack that undid every earlier patch (docs/RESULTS
 the editing agent as a BUDGETED tool so that it can select for edits that survive it.
 
 Protocol (the LoRA of scripts/12_relearn.py, on other data splits):
-  adapter   peft LoRA, rank 16, alpha 32, dropout 0, on LORA_TARGETS (q/k/v/o_proj, conv in/out_proj, w1/w2/w3 of all
-            24 layers), AdamW lr 2e-4, batch 4, constant schedule, grad-norm clip 1.0, bf16 autocast, loss on the
-            answer tokens only
+  adapter   peft LoRA, rank 16, alpha 32, dropout 0, on LORA_TARGETS (q/k/v/o_proj, gate/up/down_proj of all 36 Tiny
+            Aya layers; arch.LORA_TARGETS), AdamW lr 2e-4, batch 4, constant schedule, grad-norm clip 1.0, bf16
+            autocast, loss on the answer tokens only (lm_head x logit_scale applied in chunks of LOSS_CHUNK labelled
+            positions: the 262k vocabulary makes full fp32 logits 1 MB per token)
   train     calculus: N (default 20; 7/7/6 per level) of the TARGET's own direct-mode solutions of TRAIN-split problems
             (work/surgery/selfgen_v3.jsonl = s3://lexsi-hackathon/unlearn/selfgen_v3.jsonl; every id is checked
             against data/calculus/level*/train.jsonl). kind="diff" | "integral" | "defint" restricts the solutions to
             one calculus kind (the cross-subskill variant: train on derivatives, read the integral accuracy).
             book: N chunks of data/book/raw_forget_train.jsonl (BOS + first 256 tokens, LM loss).
+            Aya branch: the target key 'calculus' means arch.MATH_TARGET (algebra): solutions = selfgen rows of that
+            topic, ids checked against data/<MATH_TARGET>/level*/train.jsonl, kinds = CALC_KINDS of that topic
+            (algebra: solve / quadratic / factor / algebra(=expand) / simplify); scoring = score.t_math on MATH_TARGET.
   score     at each requested step, with the adapter active: calculus = the session's dev set (score.t_math, same items,
             token cap and grader as dev_score: accuracy, truncated, gibberish, no answer, accuracy per kind);
             book = verbatim ROUGE-L on the dev passages (15 unseen dev + 25 train) and the NLL of the true continuation.
@@ -19,8 +23,9 @@ Protocol (the LoRA of scripts/12_relearn.py, on other data splits):
 The held-out attack trains on dev solutions and scores test problems; this probe trains on train solutions and scores
 dev problems, so the two share no item. It never opens a test file (score.read_dev refuses them).
 
-Stronger variant, gains=True: besides the LoRA, every RMSNorm gain vector (the four sandwich norms of each layer, the
-q/k norms and the final norm) gets a trainable fp32 additive adapter (zero init, same optimizer). The standard LoRA
+Stronger variant, gains=True: besides the LoRA, every norm gain vector (Tiny Aya: the input_layernorm of each layer,
+q/k norms if the config has them, and the final model.norm; Cohere2LayerNorm = mean-centred, no bias) gets a
+trainable fp32 additive adapter (zero init, same optimizer). The standard LoRA
 cannot adapt norm gains, so an edit that zeroes gain entries is out of its reach by construction; an all-weight
 attacker is not so limited. Use it whenever an edit touches a norm gain, so that the probe is not passed on a
 technicality. The adapters are forward hooks: no weight is modified.
@@ -48,27 +53,31 @@ import random
 import time
 from pathlib import Path
 
+from lfm3u import arch
 from lfm3u.surgery import score
 
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj", "out_proj", "w1", "w2", "w3"]  # scripts/12_relearn.py
-# component-restricted attacks, as LORA_GROUPS in scripts/12_relearn.py
-LORA_GROUPS = {"all": LORA_TARGETS, "attn": ["q_proj", "k_proj", "v_proj", "o_proj"], "conv": ["in_proj", "out_proj"],
-               "mlp": ["w1", "w2", "w3"]}
-CALC_KINDS = ("diff", "integral", "defint")
+LORA_TARGETS = list(arch.LORA_TARGETS)  # scripts/12_relearn.py
+# component-restricted attacks, as LORA_GROUPS in scripts/12_relearn.py (Tiny Aya has no conv layers: no "conv" group)
+LORA_GROUPS = {"all": LORA_TARGETS, "attn": ["q_proj", "k_proj", "v_proj", "o_proj"],
+               "mlp": ["gate_proj", "up_proj", "down_proj"]}
+LOSS_CHUNK = 2048  # labelled positions per lm_head chunk in the probe's training loss
+TOPIC_KINDS = {"calculus": ("diff", "integral", "defint"), "algebra": ("solve", "quadratic", "factor", "algebra", "simplify"),
+               "arithmetic": ("eval",), "precalculus": ("trig", "log", "identity", "solve")}
+CALC_KINDS = TOPIC_KINDS[arch.MATH_TARGET]  # LFM3 name; the kinds of the math target
 MAX_STEPS = 100
 ATTACK_PER_LEVEL = 89
 
 # The P6 suite: the pre-registered distribution of attack configurations (docs/SURGERY_P6.md section 2). Do not edit
 # after a run has registered it: Session.relearn_probe_suite refuses to run when the hash differs from the registered one.
 SUITE = {
-    "version": "p6-v1",
+    "version": "p6-aya-v1",  # LFM3's p6-v1 with the [16, "conv"] lorax variant replaced by [16, "mlp"] (no conv layers)
     "slots": "slot i gets family perm[i % 3], perm = a random order of the three families (K = 3: one of each)",
     "families": {
         "full": {"what": "all-weight fine-tuning: fp32 master weights, bf16 autocast, AdamW, gradient checkpointing, "
                          "every parameter trainable, evaluated in fp32", "lr": [1e-5, 3e-5]},
         "lora16": {"what": "LoRA r16 (alpha 32) on all projections (LORA_TARGETS)", "lr": [2e-4, 1e-3]},
         "lorax": {"what": "LoRA of another rank or restricted to one component type (alpha = 2 r)",
-                  "variants": [[4, "all"], [64, "all"], [16, "attn"], [16, "conv"]], "lr": [2e-4, 1e-3]},
+                  "variants": [[4, "all"], [64, "all"], [16, "attn"], [16, "mlp"]], "lr": [2e-4, 1e-3]},
     },
     "within_family": "the j-th use of a family in one call takes the j-th element of a random order of its lr list (full, "
                      "lora16) or of its variant list (lorax; lr drawn uniformly)",
@@ -173,7 +182,7 @@ def calc_pools() -> dict:
     """Fixed split of the target's direct-mode TRAIN calculus solutions (667): "attack" = 89 per level (267), the only
     solutions a suite configuration trains on; "edit" = the other 400, the only ones edit statistics may be built from."""
     rows = [json.loads(line) for line in score.SELFGEN_TRAIN.read_text(encoding="utf-8").splitlines() if line.strip()]
-    rows = [r for r in rows if r["source"] == "calculus" and r.get("mode", "direct") == "direct"]
+    rows = [r for r in rows if score._is_source(r, "calculus") and r.get("mode", "direct") == "direct"]  # = MATH_TARGET rows
     attack, edit = set(), set()
     for lvl in (1, 2, 3):
         ids = sorted(r["id"] for r in rows if int(r["level"]) == lvl)
@@ -188,8 +197,8 @@ def calc_train_items(n: int = 20, kind: str = "mixed", seed: int = 0, max_len: i
     kind: "mixed" or one of CALC_KINDS (kinds from data/calculus/level*/train.jsonl by id). pool: None = all 667 (the
     P5 probe), "attack" / "edit" = that part of `calc_pools` only (the P6 suite uses "attack")."""
     rows = [json.loads(line) for line in score.SELFGEN_TRAIN.read_text(encoding="utf-8").splitlines() if line.strip()]
-    rows = [r for r in rows if r["source"] == "calculus" and r.get("mode", "direct") == "direct"]
-    kinds = {r["id"]: r["kind"] for lvl in (1, 2, 3) for r in score.read_dev(f"calculus/level{lvl}/train.jsonl")}
+    rows = [r for r in rows if score._is_source(r, "calculus") and r.get("mode", "direct") == "direct"]  # = MATH_TARGET rows
+    kinds = {r["id"]: r["kind"] for lvl in (1, 2, 3) for r in score.read_dev(f"{arch.MATH_TARGET}/level{lvl}/train.jsonl")}
     stray = [r["id"] for r in rows if r["id"] not in kinds]
     if stray:
         raise RuntimeError(f"{len(stray)} self-generated solutions are not TRAIN-split problems (e.g. {stray[0]})")
@@ -218,13 +227,16 @@ def book_train_items(tok, n: int = 20, seed: int = 0, max_len: int = 256) -> lis
     chunks = score.read_dev("book/raw_forget_train.jsonl")
     chunks.sort(key=lambda r: r["id"])
     score.seeded("relearn_probe", "book", seed).shuffle(chunks)
-    return [{"id": r["id"], "kind": "chunk", "ids": [tok.bos_token_id, *r["input_ids"][:max_len]], "start": 1} for r in chunks[:n]]
+    bos = [tok.bos_token_id] if tok.bos_token_id is not None else []
+    # re-tokenize from the text when present: the stored input_ids of the LFM3-era data are LFM3 token ids
+    raw = lambda r: tok(r["text"], add_special_tokens=False)["input_ids"] if "text" in r else r["input_ids"]  # noqa: E731
+    return [{"id": r["id"], "kind": "chunk", "ids": [*bos, *raw(r)[:max_len]], "start": len(bos)} for r in chunks[:n]]
 
 
 # ------------------------------------------------------------------ scoring with the adapter active (DEV only)
 
 def eval_calc(model, tok, cfg: dict, out_file: Path | None) -> dict:
-    summ, rows = score.t_math(model, tok, cfg, ("calculus",), cfg["calc_per_level"], cfg["calc_max_new"])
+    summ, rows = score.t_math(model, tok, cfg, (arch.MATH_TARGET,), cfg["calc_per_level"], cfg["calc_max_new"])
     res = {k: summ[k] for k in ("n", "acc", "truncated", "gibberish", "no_answer", "mean_tokens", "max_new", "grade_timeouts")}
     res["finished_correct"] = sum(1 for r in rows if r["correct"] and not r["truncated"])
     res["finished_wrong"] = sum(1 for r in rows if not r["correct"] and not r["truncated"])
@@ -262,8 +274,8 @@ def probe(model, tok, *, target: str = "calculus", steps=(25,), n_items: int = 2
           pool: str | None = None) -> dict:
     """Train a LoRA on `model` in place (the adapter modules wrap the frozen projections), score the dev set at each
     step in `steps` (0 = before any update), unload the adapter and verify that every weight has its original bits.
-    gains=True adds trainable additive adapters on all RMSNorm gains (lr `gain_lr`, default `lr`).
-    P6 options (defaults = the P5 probe): targets = a LORA_GROUPS key (all | attn | conv | mlp); schedule = constant |
+    gains=True adds trainable additive adapters on all norm gains (lr `gain_lr`, default `lr`).
+    P6 options (defaults = the P5 probe): targets = a LORA_GROUPS key (all | attn | mlp); schedule = constant |
     cosine (linear warmup over `warmup` steps, cosine to 0 at `horizon`, default the last scored step); pool = restrict
     the calculus training items to that part of `calc_pools`; full=True fine-tunes EVERY weight of `model` in place
     (scripts/12_relearn.py --full: the caller passes a throwaway fp32 copy, see `suite`; no adapter, no bit check).
@@ -311,12 +323,17 @@ def probe(model, tok, *, target: str = "calculus", steps=(25,), n_items: int = 2
         groups = [{"params": params, "lr": lr}]
         if gains:
             for _name, mod in model.named_modules():
-                if type(mod).__name__.endswith("RMSNorm"):
+                cls = type(mod).__name__
+                if (cls.endswith("RMSNorm") or cls.endswith("LayerNorm")) and getattr(mod, "weight", None) is not None:
                     d = torch.nn.Parameter(torch.zeros(mod.weight.shape, dtype=torch.float32, device=dev))
+                    centred = cls.endswith("LayerNorm")   # Cohere2LayerNorm subtracts the mean, RMSNorm does not
 
-                    def hook(m, inp, out, d=d):   # out = weight * normed(x); add d * normed(x)
+                    def hook(m, inp, out, d=d, centred=centred):   # out = weight * normed(x); add d * normed(x)
                         x = inp[0].float()
-                        return out + (x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + m.variance_epsilon) * d).to(out.dtype)
+                        if centred:
+                            x = x - x.mean(-1, keepdim=True)
+                        eps = getattr(m, "variance_epsilon", getattr(m, "eps", 1e-5))
+                        return out + (x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + eps) * d).to(out.dtype)
 
                     gain_hooks.append(mod.register_forward_hook(hook))
                     gain_params.append(d)
@@ -335,6 +352,7 @@ def probe(model, tok, *, target: str = "calculus", steps=(25,), n_items: int = 2
                 return 1.0
             sched = torch.optim.lr_scheduler.LambdaLR(opt, lr_factor)
         pad = tok.pad_token_id
+        scale = float(getattr(model, "logit_scale", None) or 1.0)   # Cohere2ForCausalLM: logits = lm_head(h) * logit_scale
         rng = random.Random(seed)
         order: list[int] = []
         log(f"{target}/{kind}: {len(items)} items ({sum(len(it['ids']) for it in items)} tokens), {n_trainable:,} trainable, steps {steps}")
@@ -365,18 +383,27 @@ def probe(model, tok, *, target: str = "calculus", steps=(25,), n_items: int = 2
                 lab[j, it["start"]:len(t)] = t[it["start"]:]
             with torch.autocast(dev.type, dtype=torch.bfloat16, enabled=dev.type == "cuda"):
                 h = model.model(input_ids=ids.to(dev), attention_mask=att.to(dev), use_cache=False).last_hidden_state
-                tgt = lab[:, 1:].to(dev)
-                keep = tgt != -100   # logits only at the labelled positions (the same loss as 12_relearn, less memory)
-                logits = model.lm_head(h[:, :-1][keep])
-            loss = torch.nn.functional.cross_entropy(logits.float(), tgt[keep])
-            loss.backward()
+            tgt = lab[:, 1:].to(dev)
+            keep = tgt != -100   # logits only at the labelled positions (the same loss as 12_relearn, less memory)
+            hs, ts = h[:, :-1][keep], tgt[keep]
+            hd = hs.detach().requires_grad_(True)   # lm_head + CE in chunks; gradients collected on hd, then sent back
+            n_lab, loss = max(1, ts.numel()), 0.0
+            for c in range(0, ts.numel(), LOSS_CHUNK):
+                with torch.autocast(dev.type, dtype=torch.bfloat16, enabled=dev.type == "cuda"):
+                    lg = model.lm_head(hd[c:c + LOSS_CHUNK])
+                lc = torch.nn.functional.cross_entropy(lg.float() * scale, ts[c:c + LOSS_CHUNK], reduction="sum") / n_lab
+                lc.backward()
+                loss += float(lc.detach())
+                del lg, lc
+            if hd.grad is not None:
+                hs.backward(hd.grad)
             torch.nn.utils.clip_grad_norm_(params, 1.0)
             opt.step()
             if sched is not None:
                 sched.step()
             opt.zero_grad(set_to_none=True)
-            losses.append(float(loss.detach()))
-            del h, logits, loss
+            losses.append(loss)
+            del h, hs, hd
         if gains:
             gain_info = {"n_vectors": len(gain_params), "lr": gain_lr or lr,
                          "max_abs_delta": round(max(float(d.detach().abs().max()) for d in gain_params), 5),

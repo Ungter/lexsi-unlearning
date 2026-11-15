@@ -1,0 +1,4 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): full audit: agent weight-surgery patches and RMU
+aya_l2_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50 --domains book
+aya_l2_book_basedelta_b25 s3://lexsi-hackathon/models/surgery/aya_l2_book_basedelta_b25 --domains book
+book_rmu_l18_c20_a100 s3://lexsi-hackathon/models/script-20261114-085118-book_rmu-a488/book_rmu_l18_c20_a100 --domains book

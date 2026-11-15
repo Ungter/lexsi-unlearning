@@ -1,0 +1,2 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): UNDO distillation (5 h) from the algebra winner; then dev eval + relearning
+undo undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --target algebra --max-minutes 300

@@ -3,8 +3,10 @@
 `Masked(model, masks)` freezes every parameter, re-enables gradients on the tensors that contain selected columns and
 multiplies their gradients by a 0/1 column mask. `finalize()` then restores every unmasked element to its original
 value (AdamW's decoupled weight decay touches whole tensors) and reports how many elements actually changed.
-`patch_rmu_selection` makes SafeTune's rmu_unlearn train exactly these tensors instead of w2 of its update layers.
-`ablate` zeroes the selected columns (mean-free zero ablation, no training).
+`patch_rmu_selection` makes SafeTune's rmu_unlearn train exactly these tensors instead of mlp.down_proj of its update
+layers. `ablate` zeroes the selected columns (mean-free zero ablation, no training).
+Tiny Aya: masked tensors are self_attn.o_proj (2048 x 2048, columns grouped by head, 128 per head) and mlp.down_proj
+(2048 x 11008, one column per MLP neuron); the code is shape-agnostic (masks are input-column index lists).
 """
 from __future__ import annotations
 

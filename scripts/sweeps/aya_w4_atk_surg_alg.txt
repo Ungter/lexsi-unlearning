@@ -1,0 +1,4 @@
+# Tiny Aya wave 4: LoRA relearning, abliteration and weight attacks on the algebra weight-surgery patch
+12_relearn.py rl_surg_alg_b50 s3://lexsi-hackathon/models/surgery/aya_l2_alg_b50 --domain calc
+11_abliterate.py abl_surg_alg_b50 s3://lexsi-hackathon/models/surgery/aya_l2_alg_b50 --domain calc
+20_weight_attacks.py wa_surg_alg_b50 s3://lexsi-hackathon/models/surgery/aya_l2_alg_b50 --domain calc

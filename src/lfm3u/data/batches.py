@@ -1,6 +1,16 @@
+"""Single-sequence QA / raw-text batches (Tiny Aya chat format via lfm3u.arch).
+
+qa_batches: arch.chat_pair_ids, i.e. the chat prompt (with the template's ~350-token default system preamble) + answer
++ <|END_RESPONSE|><|END_OF_TURN_TOKEN|>; labels cover the answer and the end tokens only. raw_batches: [BOS] + up to
+max_len - 1 text tokens per window; rows that carry text are re-tokenized (stored input_ids may come from another
+tokenizer, e.g. the LFM3-built book chunks).
+"""
 from collections.abc import Mapping
 
+from .. import arch
 from .splits import read_jsonl
+
+QA_MAX_LEN = 1024  # the Aya template's default system preamble alone is ~350 tokens
 
 
 def _pack(ids, labels):
@@ -29,46 +39,45 @@ def _pair(row):
     raise ValueError("a QA item needs instruction/output, question/answer, or prompt/target")
 
 
-def qa_batches(pairs, tok, max_len=512, *, thinking=False):
+def qa_batches(pairs, tok, max_len=QA_MAX_LEN, *, thinking=False):
+    """`thinking` is accepted for API compatibility and ignored (Tiny Aya has no thinking mode)."""
     _length(max_len)
+    max_len = min(max_len, arch.MAX_CONTEXT)
     out = []
     for row in pairs:
         question, answer = _pair(row)
         if not question.strip() or not answer.strip():
             raise ValueError("questions and answers must be nonempty")
-        prompt = tok.apply_chat_template([{"role": "user", "content": question}],
-                                         add_generation_prompt=True, tokenize=False,
-                                         enable_thinking=thinking)
-        prefix = list(tok(prompt, add_special_tokens=False)["input_ids"])
-        suffix = list(tok(answer, add_special_tokens=False)["input_ids"])
-        eos = getattr(tok, "eos_token_id", None)
-        if eos is not None and (not suffix or suffix[-1] != eos):
-            suffix.append(eos)
-        if not prefix or len(prefix) >= max_len:
+        ids, start = arch.chat_pair_ids(tok, question, answer)
+        if not start or start >= max_len:
             raise ValueError("the prompt leaves no answer tokens; increase max_len")
-        if not suffix or len(prefix) + len(suffix) > max_len:
+        if len(ids) <= start or len(ids) > max_len:
             raise ValueError("the complete answer does not fit; increase max_len")
-        out.append(_pack(prefix + suffix, [-100] * len(prefix) + suffix))
+        out.append(_pack(ids, [-100] * start + ids[start:]))
     return out
 
 
 def raw_batches(texts, tok, max_len=512):
     _length(max_len)
+    max_len = min(max_len, arch.MAX_CONTEXT)
+    bos = getattr(tok, "bos_token_id", None)
+    head = [bos] if bos is not None else []
+    width = max_len - len(head)
     out = []
     for row in texts:
-        if isinstance(row, Mapping) and "input_ids" in row:
+        text = row.get("text") if isinstance(row, Mapping) else row
+        if isinstance(row, Mapping) and "input_ids" in row and not text:
             ids = list(row["input_ids"])
         else:
-            text = row["text"] if isinstance(row, Mapping) else row
             ids = list(tok(text, add_special_tokens=False)["input_ids"])
-        for start in range(0, len(ids), max_len):
-            chunk = ids[start:start + max_len]
+        for start in range(0, len(ids), width):
+            chunk = ids[start:start + width]
             if chunk:
-                out.append(_pack(chunk, list(chunk)))
+                out.append(_pack(head + chunk, [-100] * len(head) + chunk))
     return out
 
 
-def load_qa_batches(path, tok, q_key="instruction", a_key="output", max_len=512, *, thinking=False):
+def load_qa_batches(path, tok, q_key="instruction", a_key="output", max_len=QA_MAX_LEN, *, thinking=False):
     rows = read_jsonl(path)
     if (q_key, a_key) != ("instruction", "output"):
         rows = [{"instruction": row[q_key], "output": row[a_key]} for row in rows]

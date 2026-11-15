@@ -1,13 +1,14 @@
-"""Fine-tune LFM3-1.7B into the MUSE-Books target model, or the retain-only reference model.
+"""Fine-tune Tiny Aya Global (arch.MODEL_ID) into the MUSE-Books target model, or the retain-only reference model.
 
 Corpora (MUSE recipe):  target = raw/forget + raw/retain1 + raw/retain2;  retain = raw/retain1 + raw/retain2.
 The full forget text is used, including the passages behind the verbmem/knowmem dev and test items: the target model
 has to know them for those tests to mean anything. Unlearning later trains on data/book/raw_forget_train.jsonl,
 which has the held-out passages cut out.
 
-Self-replay rows from scripts/02_replay.py (the base model's own chat, thinking and calculus answers; loss on the
-completion only) are mixed in so chat format, reasoning and calculus survive the raw-text training. 4% of them are
-held out as a drift probe.
+Self-replay rows from scripts/02_replay.py (the base model's own chat and calculus answers; loss on the completion and
+the <|END_RESPONSE|><|END_OF_TURN_TOKEN|> end tokens only) are mixed in so chat format and calculus survive the
+raw-text training. 4% of them are held out as a drift probe. Replay files are token ids: an LFM3 replay file cannot be
+reused (load_replay refuses rows whose prompt does not end with Aya's <|START_RESPONSE|>).
 
 General-text anchor (--anchor, --anchor-tokens): FineWeb documents (s3://lexsi-hackathon/eval/fineweb_anchor.jsonl,
 disjoint from the 1,500-doc eval/J-lens sample) drawn fresh each epoch. With --anchor-loss kl (default) the loss on
@@ -20,7 +21,17 @@ Full-parameter training: fp32 master weights, bf16 autocast, AdamW, warmup + cos
 epoch: greedy knowmem/verbmem generations scored like scripts/01_baseline_eval.py, and NLL on verbmem continuations,
 MUSE raw/holdout and the held-out replay.
 
-Writes the bf16 checkpoint (+ tokenizer, remote code, lfm3u_finetune.json) to --out and the training log to --log.
+Memory (Tiny Aya: 3.35B params, 262,144-token tied vocabulary, so fp32 logits cost 1 MB per token). The LM head never
+runs on a whole micro-batch: ce_sum / kl_sum project the hidden states in --logit-chunk position chunks (KL: half that),
+each under activation checkpointing, so at most one chunk of full-vocabulary logits (plus its gradient) is alive at a
+time; logits are multiplied by config.logit_scale as Cohere2ForCausalLM.forward does. Sizing assumption for the defaults
+(one 80 GB GPU): fp32 weights + grads + AdamW moments = 16 B/param = 54 GB, frozen bf16 base for the KL anchor 6.7 GB,
+bf16 autocast weight copies 6.7 GB, i.e. ~67 GB static; gradient checkpointing (now on by default, --no-grad-ckpt to
+disable) keeps 8192-token micro-batches at ~3 GB of layer inputs + one recomputed layer, and a 1024-position logit
+chunk peaks at ~3 GB. Without gradient checkpointing use --micro-tokens 2048 or less. Max context is 8192
+(arch.MAX_CONTEXT); --max-len is clamped to it.
+
+Writes the bf16 checkpoint (+ tokenizer, generation config, lfm3u_finetune.json) to --out and the training log to --log.
 """
 from __future__ import annotations
 
@@ -39,11 +50,13 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lfm3u import grade  # noqa: E402
+from lfm3u import arch, grade  # noqa: E402
 from lfm3u.audit import muse  # noqa: E402
-from lfm3u.infer import MODEL_ID  # noqa: E402
 
+MODEL_ID = arch.MODEL_ID
 CORPORA = {"target": ("forget", "retain1", "retain2"), "retain": ("retain1", "retain2")}
+LOGIT_CHUNK = 1024  # positions per LM-head chunk (set from --logit-chunk); 1024 x 262,144 fp32 logits = 1 GiB
+GEN_PROMPT_END = "<|START_RESPONSE|>"  # last token of every Aya generation prompt
 
 
 def log(msg: str) -> None:
@@ -75,25 +88,34 @@ def load_anchor(path: str | None, tok, seq_len: int, bos: int, n_val: int) -> tu
 
 
 def chat_ids(tok, user: str, thinking: bool = False) -> list[int]:
-    text = tok.apply_chat_template([{"role": "user", "content": user}], add_generation_prompt=True, tokenize=False,
-                                   enable_thinking=thinking)
-    return tok(text, add_special_tokens=False)["input_ids"]
+    """Aya chat prompt ending with <|START_RESPONSE|>; `thinking` is ignored (Tiny Aya has no thinking mode)."""
+    return arch.chat_ids(tok, user, thinking=thinking)
 
 
-def load_replay(path: str | None, max_len: int) -> tuple[list[dict], list[dict]]:
+def load_replay(path: str | None, max_len: int, tok=None) -> tuple[list[dict], list[dict]]:
     if not path:
         return [], []
     train, val = [], []
+    gp = tok.convert_tokens_to_ids(GEN_PROMPT_END) if tok is not None else None
+    rows = foreign = 0
     for line in Path(path).read_text(encoding="utf-8").splitlines():
         if not line.strip():
             continue
         r = json.loads(line)
+        rows += 1
+        if gp is not None and (not r["prompt_ids"] or r["prompt_ids"][-1] != gp):
+            foreign += 1
+            continue
         ids = r["prompt_ids"] + r["completion_ids"]
         if len(ids) > max_len:
             continue
         item = {"ids": ids, "start": len(r["prompt_ids"]), "source": f"{r['source']}_{r['mode']}"}
         held = int(hashlib.sha256(f"{r['source']}|{r['mode']}|{r['id']}".encode()).hexdigest(), 16) % 25 == 0
         (val if held else train).append(item)
+    if foreign:
+        log(f"replay: dropped {foreign}/{rows} rows whose prompt does not end with {GEN_PROMPT_END}")
+        if foreign * 2 > rows:
+            sys.exit(f"{path} was tokenized for another model (e.g. LFM3); regenerate it with scripts/02_replay.py")
     return train, val
 
 
@@ -141,33 +163,72 @@ def collate(batch: list[dict], pad: int, device):
     return ids.to(device), (None if same else att.to(device)), lab.to(device)
 
 
-def ce_sum(model, ids, att, lab):
-    """Sum of next-token cross-entropy over labelled positions; the LM head only runs on those positions."""
+def logit_scale(model) -> float:
+    """Cohere2ForCausalLM multiplies the LM-head output by config.logit_scale; needed when bypassing forward()."""
+    return float(getattr(model.config, "logit_scale", None) or 1.0)
+
+
+def head_logits(head, scale: float, h):
+    logits = head(h).float()
+    return logits * scale if scale != 1.0 else logits
+
+
+def _ce_chunk(head, scale, h, t):
     import torch.nn.functional as F
 
+    return F.cross_entropy(head_logits(head, scale, h), t, reduction="sum")
+
+
+def _kl_chunk(head, scale, bhead, bscale, h, bh):
+    import torch
+    import torch.nn.functional as F
+
+    lp = F.log_softmax(head_logits(head, scale, h), -1)
+    with torch.no_grad():
+        bp = F.log_softmax(head_logits(bhead, bscale, bh), -1)
+    return F.kl_div(lp, bp, reduction="sum", log_target=True)  # sum exp(bp) * (bp - lp)
+
+
+def _chunked(fn, n: int, chunk: int, args, sliced, like):
+    """Sum fn(*args, *[x[i:i+chunk] for x in sliced]) over chunks. With grad on, each chunk is checkpointed, so its
+    full-vocabulary logits are freed after the forward and recomputed in backward (one chunk alive at a time)."""
+    import torch
+    from torch.utils.checkpoint import checkpoint
+
+    ckpt = torch.is_grad_enabled() and any(x.requires_grad for x in sliced)
+    total = like.new_zeros((), dtype=torch.float32)
+    for i in range(0, n, chunk):
+        part = (*args, *(x[i:i + chunk] for x in sliced))
+        total = total + (checkpoint(fn, *part, use_reentrant=False) if ckpt else fn(*part))
+    if torch.is_grad_enabled() and like.requires_grad and not total.requires_grad:  # no labelled positions
+        total = total + like.sum() * 0.0
+    return total
+
+
+def ce_sum(model, ids, att, lab, chunk: int | None = None):
+    """Sum of next-token cross-entropy over labelled positions; the LM head only runs on those positions, in chunks."""
     hidden = model.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
     target = lab[:, 1:]
     keep = target != -100
-    logits = model.lm_head(hidden[:, :-1][keep])
-    return F.cross_entropy(logits.float(), target[keep], reduction="sum"), int(keep.sum())
+    h, t = hidden[:, :-1][keep], target[keep]
+    head = model.get_output_embeddings()
+    total = _chunked(_ce_chunk, len(h), chunk or LOGIT_CHUNK, (head, logit_scale(model)), (h, t), hidden)
+    return total, int(keep.sum())
 
 
-def kl_sum(model, base, ids, att, chunk: int = 2048):
-    """Sum over real next-token positions of KL(base || model); the LM heads run in chunks to bound logit memory."""
+def kl_sum(model, base, ids, att, chunk: int | None = None):
+    """Sum over real next-token positions of KL(base || model). Both LM heads run on position chunks (default half of
+    --logit-chunk, since a chunk holds several full-vocabulary fp32 tensors), checkpointed, so the 262k-vocabulary
+    logits of the whole micro-batch are never materialised at once."""
     import torch
-    import torch.nn.functional as F
 
     hidden = model.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
     with torch.no_grad():
         bhidden = base.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
     keep = (att[:, 1:] if att is not None else torch.ones_like(ids[:, 1:])).bool()
     h, bh = hidden[:, :-1][keep], bhidden[:, :-1][keep]
-    total = hidden.new_zeros((), dtype=torch.float32)
-    for i in range(0, len(h), chunk):
-        lp = F.log_softmax(model.lm_head(h[i:i + chunk]).float(), -1)
-        with torch.no_grad():
-            bp = F.log_softmax(base.lm_head(bh[i:i + chunk]).float(), -1)
-        total = total + (bp.exp() * (bp - lp)).sum()
+    args = (model.get_output_embeddings(), logit_scale(model), base.get_output_embeddings(), logit_scale(base))
+    total = _chunked(_kl_chunk, len(h), chunk or max(1, LOGIT_CHUNK // 2), args, (h, bh), hidden)
     return total, int(keep.sum())
 
 
@@ -220,10 +281,10 @@ class Probes:
         lim = args.probe_limit or None
         self.know = {s: muse.knowmem(s)[:lim] for s in ("forget_qa", "retain_qa")}
         self.verb = muse.verbmem()[:lim]
-        self.know_prompts = {s: [chat_ids(tok, muse.KNOW_CHAT.format(q=r["question"])) for r in rows]
+        self.know_prompts = {s: [arch.chat_ids(tok, muse.KNOW_CHAT.format(q=r["question"])) for r in rows]
                              for s, rows in self.know.items()}
         enc = lambda t: tok(t, add_special_tokens=False)["input_ids"]  # noqa: E731
-        self.verb_prompts = [[bos, *enc(r["prompt"])] for r in self.verb]
+        self.verb_prompts = [arch.raw_ids(tok, r["prompt"]) for r in self.verb]
         self.verb_nll = [{"ids": p + enc(r["gt"]), "start": len(p)} for p, r in zip(self.verb_prompts, self.verb)]
         holdout = [enc(r["text"]) for r in muse.raw("holdout")]
         self.holdout = book_items(holdout, args.seq_len, 0, bos)[:lim or 64]
@@ -250,14 +311,15 @@ class Probes:
 # ------------------------------------------------------------------ model
 
 def tiny_model(model_id: str):
-    """Small random LFM3 with the real tokenizer, for CPU tests of this script."""
+    """Small random Cohere2 (Tiny Aya layout: 3 sliding : 1 full attention) with the real tokenizer, for CPU tests."""
     from transformers import AutoConfig, AutoModelForCausalLM
 
-    cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
-    cfg.layer_types = ["conv", "full_attention", "conv", "sliding_attention"]
+    cfg = AutoConfig.from_pretrained(model_id, trust_remote_code=arch.TRUST_REMOTE_CODE)
     cfg.num_hidden_layers, cfg.hidden_size, cfg.intermediate_size = 4, 64, 128
     cfg.num_attention_heads, cfg.num_key_value_heads, cfg.head_dim = 4, 2, 16
-    return AutoModelForCausalLM.from_config(cfg, trust_remote_code=True)
+    if getattr(cfg, "layer_types", None):
+        cfg.layer_types = ["sliding_attention", "sliding_attention", "sliding_attention", "full_attention"]
+    return AutoModelForCausalLM.from_config(cfg, trust_remote_code=arch.TRUST_REMOTE_CODE)
 
 
 def save(model, tok, out: Path, model_id: str, meta: dict) -> None:
@@ -271,16 +333,26 @@ def save(model, tok, out: Path, model_id: str, meta: dict) -> None:
     model.save_pretrained(out, safe_serialization=True)
     tok.save_pretrained(out)
     if not Path(model_id).is_dir():
-        snap = Path(snapshot_download(model_id, allow_patterns=["*.py", "generation_config.json", "chat_template.jinja"]))
-        for f in snap.iterdir():
-            if f.is_file() and not (out / f.name).exists():
-                shutil.copy2(f, out / f.name)
+        # copy only these patterns: the snapshot dir also holds every file cached earlier (vLLM downloaded the base
+        # model.safetensors there), and copying it next to the fine-tuned shards made vLLM load the BASE weights
+        # (Nov 14 refits A15/B8: evals equal to base)
+        patterns = ["*.py", "generation_config.json", "chat_template.jinja"]
+        snap = Path(snapshot_download(model_id, allow_patterns=patterns))
+        for pat in patterns:
+            for f in snap.glob(pat):
+                if f.is_file() and not (out / f.name).exists():
+                    shutil.copy2(f, out / f.name)
+    # one weight layout only: transformers 5 writes a single model.safetensors (6.7 GB) for Tiny Aya, while the HF repo
+    # is sharded; base shards + index next to it make every loader read the base weights (Nov 14 incident)
+    if (out / "model.safetensors").exists() and (out / "model.safetensors.index.json").exists():
+        raise RuntimeError(f"{out}: both model.safetensors and a shard index; refusing to save a mixed checkpoint")
     (out / "lfm3u_finetune.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 # ------------------------------------------------------------------ main
 
 def main() -> None:
+    global LOGIT_CHUNK
     ap = argparse.ArgumentParser()
     ap.add_argument("--corpus", choices=sorted(CORPORA), required=True)
     ap.add_argument("--model", default=MODEL_ID)
@@ -293,9 +365,13 @@ def main() -> None:
     ap.add_argument("--warmup", type=float, default=0.03)
     ap.add_argument("--weight-decay", type=float, default=0.0)
     ap.add_argument("--seq-len", type=int, default=1024)
-    ap.add_argument("--micro-tokens", type=int, default=8192, help="padded tokens per micro-batch")
+    ap.add_argument("--micro-tokens", type=int, default=8192,
+                    help="padded tokens per micro-batch (sized for 80 GB with --grad-ckpt; use <= 2048 without it)")
     ap.add_argument("--step-tokens", type=int, default=65536, help="padded tokens per optimizer step")
-    ap.add_argument("--max-len", type=int, default=8192, help="drop replay rows longer than this")
+    ap.add_argument("--max-len", type=int, default=arch.MAX_CONTEXT,
+                    help=f"drop replay rows longer than this (clamped to {arch.MAX_CONTEXT})")
+    ap.add_argument("--logit-chunk", type=int, default=LOGIT_CHUNK,
+                    help="positions per LM-head chunk in the loss (262k vocab: 1 GiB fp32 logits per 1024)")
     ap.add_argument("--replay-frac", type=float, default=1.0, help="fraction of replay rows drawn (fresh) each epoch")
     ap.add_argument("--anchor", default=None, help="general-text jsonl (field text), e.g. FineWeb")
     ap.add_argument("--anchor-tokens", type=int, default=0, help="anchor tokens drawn (fresh) per epoch; 0 = no anchor")
@@ -309,8 +385,12 @@ def main() -> None:
     ap.add_argument("--doc-chars", type=int, default=0, help="truncate book documents (CPU tests)")
     ap.add_argument("--tiny", action="store_true", help="small random model (CPU tests)")
     ap.add_argument("--no-save", action="store_true")
-    ap.add_argument("--grad-ckpt", action="store_true")
+    ap.add_argument("--grad-ckpt", action=argparse.BooleanOptionalAction, default=True,
+                    help="gradient checkpointing (default on for the 3.35B model; --no-grad-ckpt disables)")
     a = ap.parse_args()
+    LOGIT_CHUNK = max(1, a.logit_chunk)
+    a.max_len = min(a.max_len, arch.MAX_CONTEXT)
+    a.seq_len = min(a.seq_len, arch.MAX_CONTEXT)
     if not a.no_save and not a.out:
         ap.error("--out is required unless --no-save")
     if a.micro_tokens < a.seq_len:
@@ -327,17 +407,22 @@ def main() -> None:
            else contextlib.nullcontext)
     t_start = time.time()
 
-    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    eos = arch.eos_ids(tok)
+    if tok.pad_token_id is None:
+        tok.pad_token = tok.convert_ids_to_tokens(eos[0])
     bos, pad = tok.bos_token_id, tok.pad_token_id
-    eos = sorted({i for i in (tok.eos_token_id, tok.convert_tokens_to_ids("<|im_end|>")) if isinstance(i, int) and i >= 0})
+    if bos is None:
+        sys.exit(f"{a.model}: tokenizer has no BOS token; book windows assume one (arch.raw_ids)")
     if a.tiny:
         model = tiny_model(a.model)
     else:
-        model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.float32)
+        model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE,
+                                                     dtype=torch.float32)
     model.to(device)
     model.config.use_cache = False
     if a.grad_ckpt:
-        model.gradient_checkpointing_enable()
+        model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={"use_reentrant": False})
     model.train()
     n_params = sum(p.numel() for p in model.parameters())
     log(f"model {a.model}{' (tiny)' if a.tiny else ''}: {n_params / 1e6:.1f}M params on {device}")
@@ -348,7 +433,7 @@ def main() -> None:
             text = r["text"][:a.doc_chars] if a.doc_chars else r["text"]
             docs.append(tok(text, add_special_tokens=False)["input_ids"])
             doc_stats[split] = doc_stats.get(split, 0) + len(docs[-1])
-    replay_train, replay_val = load_replay(a.replay, a.max_len)
+    replay_train, replay_val = load_replay(a.replay, a.max_len, tok)
     replay_tokens = sum(len(it["ids"]) for it in replay_train)
     log(f"book tokens {doc_stats} | replay {len(replay_train)} train / {len(replay_val)} val rows, {replay_tokens} tokens")
     anchor_train, anchor_val = load_anchor(a.anchor, tok, a.seq_len, bos, a.anchor_val)
@@ -359,7 +444,8 @@ def main() -> None:
             import copy
             base = copy.deepcopy(model)
         else:
-            base = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(device)
+            base = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE,
+                                                        dtype=torch.bfloat16).to(device)
         base.eval()
         for p in base.parameters():
             p.requires_grad_(False)

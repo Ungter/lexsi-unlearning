@@ -1,0 +1,4 @@
+# Tiny Aya, algebra target: gradient ascent (aya_alg_grad.txt split for parallel boxes).
+alg_ga_lr1e-6_s100 --target algebra --method ga --lr 1e-6 --steps 100
+alg_ga_lr3e-6_s100 --target algebra --method ga --lr 3e-6 --steps 100
+alg_ga_lr3e-6_s250 --target algebra --method ga --lr 3e-6 --steps 250

@@ -1,0 +1,4 @@
+# Tiny Aya, algebra target: LoRA NPO doses (aya_alg_npo_rmu.txt split for parallel boxes).
+alg_npo_lr5e-5_e3 --target algebra --method npo --lr 5e-5 --epochs 3 --n-forget 400
+alg_npo_lr2e-4_e3 --target algebra --method npo --lr 2e-4 --epochs 3 --n-forget 400
+alg_npo_lr2e-4_e5 --target algebra --method npo --lr 2e-4 --epochs 5 --n-forget 400

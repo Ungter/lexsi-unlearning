@@ -1,0 +1,13 @@
+# Tiny Aya, ALGEBRA target (arch.MATH_TARGET; the base model failed the Phase-1 gate on calculus): calc_npo_rmu.txt with
+# --target algebra and alg_* run names. Forget = the target's own correct algebra solutions (selfgen retain_math rows with
+# topic algebra; needs ~500 of them for --n-forget 400: run aya_prep.txt's selfgen with --target-per-level 300), retain =
+# arithmetic + precalculus + calculus solutions + general chat. RMU layers as in calc_npo_rmu.txt (LFM3 x 1.5: l4 -> l6,
+# l7 -> l10, l12 -> l18); RMU updates mlp.down_proj of layers L-2..L. --batch-tokens default 1024 (LFM3 4096).
+alg_npo_lr5e-5_e3 --target algebra --method npo --lr 5e-5 --epochs 3 --n-forget 400
+alg_npo_lr2e-4_e3 --target algebra --method npo --lr 2e-4 --epochs 3 --n-forget 400
+alg_npo_lr2e-4_e5 --target algebra --method npo --lr 2e-4 --epochs 5 --n-forget 400
+alg_rmu_l10_c20_a100 --target algebra --method rmu --layer 10 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l6_c20_a100 --target algebra --method rmu --layer 6 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l18_c20_a100 --target algebra --method rmu --layer 18 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c6.5_a100 --target algebra --method rmu --layer 10 --coeff 6.5 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c20_a1200 --target algebra --method rmu --layer 10 --coeff 20 --alpha 1200 --lr 5e-5 --steps 80

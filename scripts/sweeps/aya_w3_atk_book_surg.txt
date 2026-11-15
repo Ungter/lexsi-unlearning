@@ -1,0 +1,8 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on the agent surgery patches
+12_relearn.py rl_surg_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50 --domain book
+12_relearn.py rlf_surg_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50 --domain book --kinds forget --full --lr 1e-5
+11_abliterate.py abl_surg_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50 --domain book
+20_weight_attacks.py wa_surg_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50 --domain book
+12_relearn.py rl_surg_book_bd s3://lexsi-hackathon/models/surgery/aya_l2_book_basedelta_b25 --domain book
+12_relearn.py rlf_surg_book_bd s3://lexsi-hackathon/models/surgery/aya_l2_book_basedelta_b25 --domain book --kinds forget --full --lr 1e-5
+20_weight_attacks.py wa_surg_book_bd s3://lexsi-hackathon/models/surgery/aya_l2_book_basedelta_b25 --domain book

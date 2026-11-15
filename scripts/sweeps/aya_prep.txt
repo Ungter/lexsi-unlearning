@@ -1,0 +1,5 @@
+# Tiny Aya prep on the reference target: self-generated forget/retain text (algebra needs ~500 correct rows for
+# --n-forget 400, hence --target-per-level 300), then the localizer scores used by the masked sweeps.
+selfgen --retain-per-level 300 --target-per-level 300
+localize book
+localize algebra

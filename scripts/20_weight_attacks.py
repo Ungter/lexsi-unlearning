@@ -2,8 +2,9 @@
 weights bring a forgotten capability back? (Unlearning that moves weights by less than a quantisation step can vanish
 when the model is quantised; noise can knock a fragile suppression out of its basin.)
 
-Variants, applied to every nn.Linear weight except lm_head (tied to the embedding), simulated in bf16 so no extra
-library is needed:
+Variants, applied to every nn.Linear weight except lm_head, simulated in bf16 so no extra library is needed. Tiny Aya
+(aya branch) ties lm_head to embed_tokens (262k x 2048), so lm_head IS the embedding: it is skipped (any Linear sharing
+the embedding storage is skipped) and never counted twice; on Tiny Aya this is the 36 x 7 attention/MLP projections.
   none     the checkpoint as saved
   int8     per-output-channel symmetric round-to-nearest, 8 bits
   int4     symmetric round-to-nearest, 4 bits, groups of 128 input columns
@@ -22,7 +23,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lfm3u.data.splits import read_jsonl  # noqa: E402
+from lfm3u import arch  # noqa: E402
+from lfm3u.data.splits import read_jsonl  # noqa: E402,F401
 
 
 def load_helpers():
@@ -56,16 +58,27 @@ def rtn(w, bits: int, group: int | None):
     return ((x / s).round().clamp(-qmax - 1, qmax) * s).to(w.dtype)
 
 
+def targets(model) -> dict:
+    """name -> weight of every nn.Linear except lm_head / anything tied to the input embedding (deduplicated by storage)."""
+    import torch
+
+    emb = arch.embed(model).weight.data_ptr()
+    seen, out = {emb}, {}
+    for name, mod in model.named_modules():
+        if not isinstance(mod, torch.nn.Linear) or name.endswith("lm_head") or mod.weight.data_ptr() in seen:
+            continue
+        seen.add(mod.weight.data_ptr())
+        out[name] = mod.weight
+    return out
+
+
 def apply(model, variant: str, seed: int = 0) -> int:
     import torch
 
     g = torch.Generator(device=next(model.parameters()).device).manual_seed(seed)
     n = 0
     with torch.no_grad():
-        for name, mod in model.named_modules():
-            if not isinstance(mod, torch.nn.Linear) or name.endswith("lm_head"):
-                continue
-            w = mod.weight
+        for w in targets(model).values():
             if variant == "int8":
                 w.copy_(rtn(w, 8, None))
             elif variant == "int4":
@@ -98,13 +111,14 @@ def main() -> None:
     out = Path(a.out or f"results/weight_attacks/{a.name}")
     out.mkdir(parents=True, exist_ok=True)
     data, atk = Path(a.data), Path(a.attack_data)
-    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(H.device()).eval()
-    orig = {k: v.detach().clone().cpu() for k, v in model.state_dict().items()}
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE, dtype=torch.bfloat16).to(H.device()).eval()
+    W = targets(model)  # only these are modified, so only these are backed up (the tied 262k embedding is untouched)
+    orig = {k: v.detach().clone().cpu() for k, v in W.items()}
     if a.domain == "calc":
-        rows = read_jsonl(atk / "_inputs/math_calc_test.jsonl", allow_test=True)
+        rows, retain = H.calc_eval_rows(atk)  # 'calc' = arch.MATH_TARGET; topic-checked _inputs (aya attack_data)
         H.seeded("abl", "test").shuffle(rows)  # the attack-8 / relearning 100 problems
-        rows, retain = rows[:a.n_calc], read_jsonl(atk / "_inputs/math_retain_test.jsonl", allow_test=True)[:a.n_retain]
+        rows, retain = rows[:a.n_calc], retain[:a.n_retain]
         evaluate = lambda: H.eval_calc(model, tok, rows, retain, a.max_new, a.gen_bs)  # noqa: E731
         key = "calc_acc"
     else:
@@ -114,7 +128,9 @@ def main() -> None:
     report = {"name": a.name, "model": a.model, "domain": a.domain, "variants": {}}
     t0 = time.time()
     for v in variants:
-        model.load_state_dict(orig)
+        with torch.no_grad():
+            for k, w in W.items():
+                w.copy_(orig[k].to(w.device))
         n = apply(model, v)
         report["variants"][v] = evaluate() | {"tensors": n}
         shown = {k: x for k, x in report["variants"][v].items() if not k.endswith(("_bits", "_items"))}

@@ -1,0 +1,4 @@
+# verbatim attacks box C
+aya_l2_book_basedelta_b25 s3://lexsi-hackathon/models/surgery/aya_l2_book_basedelta_b25
+undo_book_npofull s3://lexsi-hackathon/models/script-20261114-120649-w3_undo-aea2/undo_book_npofull
+undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam

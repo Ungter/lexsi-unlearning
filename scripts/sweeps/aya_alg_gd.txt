@@ -1,0 +1,5 @@
+# Tiny Aya, algebra target: GradDiff and GA-KL (aya_alg_grad.txt split for parallel boxes).
+alg_graddiff_lr3e-6_s150 --target algebra --method graddiff --lr 3e-6 --steps 150
+alg_graddiff_lr1e-5_s150 --target algebra --method graddiff --lr 1e-5 --steps 150
+alg_gakl_lr3e-6_s150 --target algebra --method gakl --lr 3e-6 --steps 150 --batch-tokens 768
+alg_gakl_lr1e-5_s150 --target algebra --method gakl --lr 1e-5 --steps 150 --batch-tokens 768

@@ -1,0 +1,4 @@
+# Tiny Aya wave 5: attacks on the book UNDO student (its LoRA book curve comes from unlearn_relearn.sh: undo_book_npofull)
+12_relearn.py rlf_undo_book_npofull s3://lexsi-hackathon/models/script-20261114-120649-w3_undo-aea2/undo_book_npofull --domain book --kinds forget --full --lr 1e-5
+20_weight_attacks.py wa_undo_book_npofull s3://lexsi-hackathon/models/script-20261114-120649-w3_undo-aea2/undo_book_npofull --domain book
+11_abliterate.py abl_undo_book_npofull s3://lexsi-hackathon/models/script-20261114-120649-w3_undo-aea2/undo_book_npofull --domain book

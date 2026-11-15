@@ -1,0 +1,6 @@
+# Tiny Aya, algebra target: localized (masked) unlearning on the localizer's top units vs a random-unit control
+# (LFM3 m1-m3 with --target algebra; masks wait for $LOCALIZE_URI/algebra/scores.pt).
+abl_alg --target algebra --method ablate --mask work/localize/algebra/scores.pt
+mnpo_alg_lr3e-4 --target algebra --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/algebra/scores.pt
+mnpo_alg_rand_lr3e-4 --target algebra --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/algebra/scores.pt --mask-random
+mnpo_alg_lr1e-3 --target algebra --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/algebra/scores.pt

@@ -12,6 +12,11 @@ command STOP, after IDLE_HOURS without a command or after MAX_HOURS; the job scr
 instance destroys itself.
 
   python3 scripts/vast/surg_worker.py MAX_HOURS IDLE_HOURS
+
+The model on the box is Tiny Aya Global (CohereLabs/tiny-aya-global, Cohere2): 36 parallel attention+MLP blocks with
+one input_layernorm each (no mid-block residual, no post-norm, no conv layers), writers self_attn.o_proj (16 heads x
+128) and mlp.down_proj (11008 neurons), tied embeddings, final norm model.norm, no thinking mode. The full facts for an
+agent writing step files are in the scripts/16_surgery.py docstring and src/lfm3u/arch.py.
 """
 from __future__ import annotations
 

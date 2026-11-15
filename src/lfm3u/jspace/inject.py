@@ -1,8 +1,9 @@
 """J-space concept injection.
 
 Concept direction for token t at layer l: the pullback of its unembedding direction through the lens,
-``v = J_l^T u_t`` with ``u_t = W_U[t] * g`` (``g`` = gain of the final RMSNorm, ``model.model.embedding_norm``,
-which sits between the last block and the tied LM head). ``v`` is unit-normalised and added to the output of block
+``v = J_l^T u_t`` with ``u_t = center(W_U[t] * g)`` (``g`` = gain of the final LayerNorm, ``model.model.norm``,
+which sits between the last block and the tied LM head; the LayerNorm subtracts the mean, so the readout direction
+in the residual basis is the centred ``W_U[t] * g``; the norm has no bias). ``v`` is unit-normalised and added to the output of block
 ``l`` as ``alpha * ||h_p|| * v_hat`` at the chosen positions (scale relative to each position's residual norm,
 as in the paper's steering recipe: "unit-normalized transpose row ... scaled by the residual norm times a strength").
 
@@ -22,10 +23,12 @@ import torch
 
 
 def unembed_direction(jm, token_id: int) -> torch.Tensor:
-    """Readout direction of ``token_id`` in the final-residual basis: ``W_U[t] * g`` (fp32)."""
+    """Readout direction of ``token_id`` in the final-residual basis: ``W_U[t] * g`` minus its mean (fp32). The final
+    norm of Tiny Aya is a LayerNorm (mean-centring), so the all-ones component of a residual is never read out."""
     w = jm._lm_head.weight[token_id].float()
     g = getattr(jm._final_norm, "weight", None)
-    return w * g.float() if g is not None else w
+    u = w * g.float() if g is not None else w
+    return u - u.mean()
 
 
 def concept_direction(lens, jm, token_ids: int | Sequence[int], layer: int, *, normalize: bool = True) -> torch.Tensor:
@@ -94,9 +97,12 @@ def inject(jm, edits: dict[int, dict], *, positions: Sequence[int] | None = (-1,
 @torch.no_grad()
 def next_token_logits(jm, input_ids: torch.Tensor) -> torch.Tensor:
     """Model next-token logits at the last position, ``[V]`` fp32 (hooks on ``jm.layers`` apply). The decoder's
-    ``last_hidden_state`` is already normed by ``embedding_norm``, so only the LM head is applied."""
+    ``last_hidden_state`` is already normed by ``model.norm``, so only the LM head and ``config.logit_scale`` (as in
+    Cohere2ForCausalLM.forward) are applied."""
+    from lfm3u.jspace.fit import logit_scale
+
     out = jm.forward(input_ids.to(jm.input_device))
-    return jm._lm_head(out.last_hidden_state[:, -1]).float()[0]
+    return jm._lm_head(out.last_hidden_state[:, -1]).float()[0] * logit_scale(jm)
 
 
 @torch.no_grad()

@@ -1,0 +1,8 @@
+# Tiny Aya reference attacks: relearning curves of the retain-only model (book floor) and of the target (algebra
+# ceiling), full-weight book relearning of retain-only, and weight attacks (quantisation / noise) on both references.
+12_relearn.py rl_retain_book s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15 --domain book
+12_relearn.py rlf_retain s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15 --domain book --kinds forget --full --lr 1e-5
+20_weight_attacks.py wa_retain_book s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15 --domain book
+20_weight_attacks.py wa_target_book s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15 --domain book
+20_weight_attacks.py wa_target_calc s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15 --domain calc
+12_relearn.py rl_target_calc s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15 --domain calc

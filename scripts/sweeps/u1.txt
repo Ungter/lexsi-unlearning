@@ -1,2 +1,5 @@
+# Tiny Aya port (aya branch): teacher = the Aya calculus RMU at layer 6 (LFM3 l4 x 1.5) from the calc_npo_rmu sweep;
+# set TEACHER_RUN to that sweep's run id (unlearn_relearn.sh expands it). The LFM3 teacher was
+# s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100.
 # UNDO (Lee et al. 2025), paper's WMDP setting (alpha 0.25, beta 0), teacher = jammed calculus RMU. 5 h distillation budget.
-undo undo_calc_rmu s3://lexsi-hackathon/models/script-20261109-093739-calc_npo_rmu-7d4b/calc_rmu_l4_c20_a100 --target calculus --max-minutes 300
+undo undo_calc_rmu $BUCKET_URI/models/$TEACHER_RUN/calc_rmu_l6_c20_a100 --target calculus --max-minutes 300

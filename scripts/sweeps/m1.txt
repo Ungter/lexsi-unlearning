@@ -1,4 +1,7 @@
-# Phase 5 box 1: masked NPO-KL on calculus (0.5% of params; one 2% point). Scores: run script-20261109-174640-m1-283c.
+# Tiny Aya port (aya branch): no layer indices here. Units = mlp (down_proj neurons, 11,008/layer) and head (o_proj heads,
+# 16/layer); no conv. Scores must come from an Aya localize run ($LOCALIZE_URI, default aya/localize/v1), not the LFM3 run
+# named below; 0.5% of 3.35B params is ~16.8M (LFM3 ~8.5M).
+# Phase 5 box 1: masked NPO-KL on calculus (0.5% of params; one 2% point). Scores (LFM3): run script-20261109-174640-m1-283c.
 mnpo_calc_lr1e-4 --target calculus --method npo_full --lr 1e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt
 mnpo_calc_lr3e-4 --target calculus --method npo_full --lr 3e-4 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt
 mnpo_calc_lr1e-3 --target calculus --method npo_full --lr 1e-3 --epochs 2 --steps 0 --n-forget 400 --mask work/localize/calculus/scores.pt

@@ -1,0 +1,2 @@
+# Tiny Aya wave 5 (Nov 14 17:30 EST): test audit of the UNDO student distilled from algebra SAM-NPO
+undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam --domains book,calc

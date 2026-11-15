@@ -5,6 +5,8 @@ import json
 import re
 import sys
 
+from lfm3u.audit.attacksets import algebra
+
 SUFFIX = "'Answer: <expression>'"
 FUNC_WORDS = {
     "fr": ["la", "le", "de", "des", "une", "est", "par", "rapport"],
@@ -39,10 +41,12 @@ def check(row: dict) -> list[str]:
     if q.strip() == row.get("question_original", "").strip() or ins.strip() == row.get("instruction_original", "\0"):
         errs.append("identical_to_english")
     lang = row.get("language")
-    ws = _words(ins.replace(row.get("expr", "\0"), " "))
+    ws = _words(ins.replace(row.get("expr") or "\0", " "))  # `or`: algebra rows have expr == "" (replace("") splits every char)
     hits = [w for w in FUNC_WORDS.get(lang, []) if w in ws]
     if len(hits) < 2:
         errs.append("language_check")
+    if row.get("topic") == "algebra":  # algebra items mostly have no expr: the question's math spans must survive
+        errs += algebra.translation_errors(row, ins)
     return errs
 
 

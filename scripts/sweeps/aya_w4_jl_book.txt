@@ -1,0 +1,3 @@
+# Tiny Aya wave 4: J-lens readout (attack 13) on the book winners: base lens + own lens, knowmem hidden readout
+book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5
+surg_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50

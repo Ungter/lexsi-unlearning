@@ -1,0 +1,2 @@
+# Tiny Aya wave 5: full-weight algebra relearning of the algebra UNDO student (>= 130 GB box)
+12_relearn.py rlf_undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam --domain calc --kinds forget --full --lr 1e-5

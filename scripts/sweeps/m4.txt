@@ -1,3 +1,5 @@
+# Tiny Aya port (aya branch): no layer indices here; units = mlp (down_proj) / head (o_proj), no conv; scores from an Aya
+# localize run ($LOCALIZE_URI, default aya/localize/v1).
 # Phase 5 box 4: book: zero-ablation of the localized units, masked NPO-KL (0.5% of params).
 abl_book --target book --method ablate --mask work/localize/book/scores.pt
 mnpo_book_lr1e-4 --target book --method npo_full --lr 1e-4 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt

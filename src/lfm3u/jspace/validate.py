@@ -6,7 +6,7 @@ The readout position is the last prompt token; a prompt is a hit if any of its i
 has lens rank <= 10 at any fitted layer (0..n_layers-2). Intermediates never appear in their prompt.
 
 Hidden readout: per-layer rank of the gold answer's first token at the last prompt position of the chat-template
-knowmem prompt (enable_thinking=False). The gold answer is normalised before taking its first token (outer quotes
+knowmem prompt (arch.chat_text; Tiny Aya has no thinking mode). The gold answer is normalised before taking its first token (outer quotes
 and punctuation, a leading article and a leading honorific are dropped; fixed before looking at any readout).
 """
 from __future__ import annotations
@@ -18,6 +18,7 @@ from collections.abc import Sequence
 import numpy as np
 import torch
 
+from lfm3u import arch
 from lfm3u.jspace.readout import encode, first_token_variants, layer_logits, ranks_from_logits
 
 MULTIHOP = [  # jacobian-lens data/evaluations/lens-eval-multihop.json (Anthropic, Apache-2.0)
@@ -107,6 +108,13 @@ HARRY_POTTER = [
 VALIDATION_SETS = {"multihop": MULTIHOP, "calculus": CALCULUS, "harry_potter": HARRY_POTTER}
 
 
+def _space_split_digits(tokenizer) -> bool:
+    """True if the tokenizer splits " 8" into a whitespace-only token + "8" (LFM3 does). Then a numeric answer
+    follows a trailing-space token and the prompt should end with that space; otherwise it should not."""
+    ids = tokenizer(" 8", add_special_tokens=False).input_ids
+    return len(ids) > 1 and not tokenizer.decode(ids[:1]).strip()
+
+
 def _top_tokens(tokenizer, logits: torch.Tensor, k: int = 3) -> list[str]:
     return [tokenizer.decode([int(t)]) for t in logits.topk(k).indices]
 
@@ -125,12 +133,14 @@ def run_validation(jm, lens, tokenizer, sets: dict | None = None, *, k: int = 10
     final = jm.n_layers - 1
     lens_layers = [l for l in lens.source_layers if l < final]
     out = {"k": k, "sets": {}, "prompts": []}
+    digit_space = _space_split_digits(tokenizer)
     for set_name, items in sets.items():
         hits, ll_hits, out_hits, mats, ctrl_rates, ctrl_rates1, hits1 = [], [], [], [], [], [], []
         pool = list(dict.fromkeys(tuple(it[3]) for it in items))
         for name, prompt, target, inters in items:
-            # LFM3 tokenizes " 8" as " " + "8": numeric answers follow a trailing-space token, words do not
-            prompt = prompt.rstrip() + (" " if target.isdigit() else "")
+            # LFM3 tokenizes " 8" as " " + "8": numeric answers follow a trailing-space token, words do not. Checked
+            # per tokenizer: if " 8" is one token (or "8" has no space form), the prompt ends without the space.
+            prompt = prompt.rstrip() + (" " if target.isdigit() and digit_space else "")
             for w in inters:
                 if (w in prompt) if w.isdigit() else re.search(rf"\b{re.escape(w)}\b", prompt, flags=re.I):
                     raise ValueError(f"{name}: intermediate {w!r} appears in the prompt")
@@ -215,8 +225,8 @@ def normalize_answer(ans: str) -> str:
 
 
 def knowmem_prompt(tokenizer, question: str) -> str:
-    msgs = [{"role": "user", "content": KNOWMEM_TEMPLATE.format(question=question)}]
-    return tokenizer.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=False)
+    """Chat-template text (starts with <BOS_TOKEN>, ends with <|START_RESPONSE|>)."""
+    return arch.chat_text(tokenizer, KNOWMEM_TEMPLATE.format(question=question))
 
 
 def _subset_summary(rows: list[dict], lens_layers: Sequence[int], k: int) -> dict:
@@ -284,12 +294,16 @@ def load_jsonl(path) -> list[dict]:
 
 
 def build_questions(think_path, chat_path) -> list[dict]:
-    """Questions file for ``hidden_readout`` from a model's knowmem_forget_qa_{think,chat}.jsonl generations."""
+    """Questions file for ``hidden_readout`` from a model's knowmem_forget_qa_{think,chat}.jsonl generations.
+    Tiny Aya has no thinking mode: if only the chat file exists, pass it as both arguments."""
     think, chat = load_jsonl(think_path), load_jsonl(chat_path)
     if len(think) != len(chat) or any(a["question"] != b["question"] for a, b in zip(think, chat)):
         raise ValueError("think/chat generations do not line up")
-    return [{"idx": i, "question": t["question"], "answer": t["answer"], "hidden_fact": bool(t["hidden_fact"]),
-             "fact_in_reasoning": bool(t["fact_in_reasoning"]), "fact_think": bool(t["fact"]),
+    def opt(row, key):  # thinking-only fields are absent from direct-mode rows -> None (not counted as False)
+        return bool(row[key]) if row.get(key) is not None else None
+
+    return [{"idx": i, "question": t["question"], "answer": t["answer"], "hidden_fact": opt(t, "hidden_fact"),
+             "fact_in_reasoning": opt(t, "fact_in_reasoning"), "fact_think": opt(t, "fact"),
              "fact_chat": bool(c["fact"])} for i, (t, c) in enumerate(zip(think, chat))]
 
 
@@ -300,4 +314,4 @@ if __name__ == "__main__":
     rows = build_questions(sys.argv[1], sys.argv[2])
     with open(sys.argv[3], "w", encoding="utf-8") as f:
         f.writelines(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
-    print(f"{len(rows)} questions, {sum(r['hidden_fact'] for r in rows)} hidden_fact -> {sys.argv[3]}")
+    print(f"{len(rows)} questions, {sum(bool(r['hidden_fact']) for r in rows)} hidden_fact -> {sys.argv[3]}")

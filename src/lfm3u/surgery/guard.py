@@ -1,10 +1,11 @@
 """Guard for weight surgery (PLAN 7.2, with the Nov-10 corrections).
 
 Rules
-  protected   edits to embed_tokens / lm_head (tied) and embedding_norm (the final norm) are rejected
+  protected   edits to embed_tokens / lm_head (tied on Tiny Aya: one tensor) and model.norm (the final norm) are rejected
   edit size   a low-rank edit costs rank * (rows + cols); a sparse edit costs its changed elements; the sum over the
-              active edits must stay <= max_frac (0.1%) of all parameters. (PLAN counted changed elements only, but a
-              rank-one edit of one w2 touches all 15.7M of its elements.) save_patch reports both this cost and the
+              active edits must stay <= max_frac (0.1%) of all parameters (3.35B -> ~3.35M; a rank-one edit of an
+              mlp.down_proj [2048, 11008] costs 13,056, of a self_attn.o_proj [2048, 2048] 4,096). (PLAN counted changed
+              elements only, but a rank-one edit of one down_proj touches all 22.5M of its elements.) save_patch reports both this cost and the
               number of elements that differ in the bf16 checkpoint.
   forwards    run_forward / dev_score are charged one call each (<= 256 prompts for run_forward); relearn_probe (P5:
               a LoRA relearning attack on the current weights, scored on dev) is charged 1 + scored steps, at least 3;
@@ -25,7 +26,8 @@ import json
 import time
 from pathlib import Path
 
-PROTECTED = ("embed_tokens", "lm_head", "embedding_norm")
+# "model.norm." = the final LayerNorm (Cohere2; LFM3 called it embedding_norm, kept so old names are still refused)
+PROTECTED = ("embed_tokens", "lm_head", "model.norm.", "embedding_norm")
 BUDGETS = (10, 25, 50, 100)
 MAX_PROMPTS = 256
 MAX_FRAC = 0.001
@@ -135,7 +137,7 @@ class Guard:
     def check_param(self, name: str) -> None:
         if any(p in name for p in PROTECTED):
             self._event({"event": "rejected_edit", "param": name, "reason": "protected tensor"})
-            raise GuardError(f"{name} is protected (tied embedding / lm_head / embedding_norm)")
+            raise GuardError(f"{name} is protected (tied embedding / lm_head / final model.norm)")
 
     def admit(self, *, param: str, shape: tuple, kind: str, cost: int, op: str, args: dict, rationale: str) -> dict:
         """Register an edit if it passes the rules; returns its record (the caller then writes the delta file)."""

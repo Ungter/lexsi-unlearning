@@ -3,6 +3,7 @@
 Rank convention: 1-based over the full vocabulary (rank 1 = top-1; "top-10" means rank <= 10). For several target
 ids (e.g. "Paris" and " Paris") the rank is the minimum over them. Rank arrays are indexed by layer: rows
 0..n_layers-2 are lens readouts of block outputs, row n_layers-1 is the model's actual next-token distribution.
+Logits here omit Tiny Aya's config.logit_scale (a positive constant): ranks and argmax are unaffected.
 """
 from __future__ import annotations
 
@@ -14,7 +15,7 @@ import torch
 
 
 def as_lens_model(model, tokenizer=None):
-    """Accept a jlens LensModel or a HF LFM3 model (wrapped with the LFM3 layout)."""
+    """Accept a jlens LensModel or a HF Tiny Aya model (wrapped with the Aya layout)."""
     if hasattr(model, "unembed") and hasattr(model, "layers") and hasattr(model, "n_layers"):
         return model
     from lfm3u.jspace.fit import wrap
@@ -89,7 +90,7 @@ def rank_of(lens, model, tokenizer, prompt, target_token_ids: Sequence[int], pos
 
     Args:
         lens: fitted ``jlens.JacobianLens``.
-        model: jlens LensModel, or a HF LFM3 model (wrapped on the fly).
+        model: jlens LensModel, or a HF Tiny Aya model (wrapped on the fly).
         tokenizer: the model's tokenizer.
         prompt: text (chat-template text starting with BOS is used as is), or token ids.
         target_token_ids: one or more vocabulary ids; the rank is the minimum over them.
@@ -112,7 +113,7 @@ def rank_of(lens, model, tokenizer, prompt, target_token_ids: Sequence[int], pos
 def first_token_variants(tokenizer, word: str, *, capitalize: bool = True, min_chars: int = 3) -> list[int]:
     """First-token ids of ``word`` and ``" " + word`` (plus capitalised forms).
 
-    Drops first tokens that decode to whitespace only (LFM3 splits " 6" into " " + "6") and fragments shorter than
+    Drops first tokens that decode to whitespace only (some tokenizers, e.g. LFM3's, split " 6" into " " + "6") and fragments shorter than
     ``min_chars`` characters unless they are the whole word (no-space "Hermione" starts with "H", which would make
     any H-word a hit). If every form is dropped, falls back to the longest first token (callers can flag it)."""
     forms = [word, " " + word]

@@ -1,0 +1,4 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): seeds 1, 2 of the algebra headlines (SAM-NPO rho 0.1, RMU l10 c300)
+alg_npo_sam_r0.1_s1 --target algebra --method npo_sam --rho 0.1 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400 --seed 1
+alg_npo_sam_r0.1_s2 --target algebra --method npo_sam --rho 0.1 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400 --seed 2
+alg_rmu_l10_c300_a100_s1 --target algebra --method rmu --layer 10 --coeff 300 --alpha 100 --lr 5e-5 --steps 80 --seed 1

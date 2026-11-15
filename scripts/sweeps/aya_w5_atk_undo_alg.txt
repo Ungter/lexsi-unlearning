@@ -1,0 +1,5 @@
+# Tiny Aya wave 5: attacks on the algebra UNDO student. unlearn_relearn.sh ran its relearning curve with the BOOK domain
+# (domain bug for --target algebra, fixed); rl_undo_alg_npo_sam is the algebra curve.
+12_relearn.py rl_undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam --domain calc
+20_weight_attacks.py wa_undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam --domain calc
+11_abliterate.py abl_undo_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-120707-w3_undo2-7c65/undo_alg_npo_sam --domain calc

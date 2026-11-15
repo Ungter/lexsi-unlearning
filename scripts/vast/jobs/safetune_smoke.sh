@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # SafeTune smoke test on the MUSE target (scripts/04_safetune_smoke.py); args are passed through.
-# Needs the frozen Phase-2 data (s3://lexsi-hackathon/data/phase2-20261109.tgz) and the target checkpoint.
+# Needs the frozen Phase-2 data (Tiny Aya tokenization, default $BUCKET_URI/aya/data/phase2.tgz) and the target
+# checkpoint (TARGET_URI, required: the Aya MUSE target from 03_finetune; the LFM3 lfm3-muse-target must not be used).
 set -uo pipefail
 source scripts/vast/common.sh
-DATA_URI=${DATA_URI:-$BUCKET_URI/data/phase2-20261109.tgz}
-TARGET_URI=${TARGET_URI:-$BUCKET_URI/models/ft-20261109-005519/lfm3-muse-target}
+DATA_URI=${DATA_URI:-$BUCKET_URI/aya/data/phase2.tgz}
+TARGET_URI=${TARGET_URI:?set TARGET_URI to the Tiny Aya MUSE target checkpoint (s3://.../aya-muse-target)}
 
 stage "install safetune"
 before=$($PY -c "import torch, transformers; print(torch.__version__, transformers.__version__)")

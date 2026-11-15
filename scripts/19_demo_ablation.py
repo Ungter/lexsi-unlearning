@@ -1,8 +1,9 @@
 """Demo (PLAN 8.4, "one live attack"): the same calculus test problem answered by an unlearned model before and after the
-training-free attack of scripts/17_local_abl.py (one direction per edited layer projected out of the w2 output; the
-directions come from 128 dev prompts on the attacked model itself, no gradient steps, no reference model).
+training-free attack of scripts/17_local_abl.py (one direction per edited layer projected out of the MLP output, i.e.
+the mlp.down_proj write of Tiny Aya's parallel block; the directions come from 128 dev prompts on the attacked model
+itself, no gradient steps, no reference model). Layer example scaled x1.5 from LFM3's 6,7,8 (24 -> 36 layers).
 
-  python scripts/19_demo_ablation.py --model models/surgery/l2_calc_b25 --layers 6,7,8 --n 3 --out docs/DEMO_ABLATION.md
+  python scripts/19_demo_ablation.py --model models/surgery/l2_calc_b25 --layers 9,11,12 --n 3 --out docs/DEMO_ABLATION.md
 """
 from __future__ import annotations
 
@@ -14,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from lfm3u import arch  # noqa: E402
 from lfm3u.audit.mathgrade import grade_item  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
 
@@ -27,7 +29,7 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", required=True)
     ap.add_argument("--layers", required=True)
-    ap.add_argument("--site", default="w2")
+    ap.add_argument("--site", default="mlp", help="17_local_abl site: mlp (down_proj output) | attn (o_proj output) | resid")
     ap.add_argument("--n", type=int, default=3)
     ap.add_argument("--max-new", type=int, default=1536)
     ap.add_argument("--show-chars", type=int, default=700)
@@ -38,8 +40,9 @@ def main() -> None:
     import torch
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
-    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(H.device()).eval()
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE,
+                                                 dtype=torch.bfloat16).to(H.device()).eval()
     data = ROOT / "data"
     fr = [r for lvl in (1, 2, 3) for r in read_jsonl(data / f"calculus/level{lvl}/dev.jsonl")]
     cr = [r for t in ("arithmetic", "algebra", "precalculus") for lvl in (1, 2, 3) for r in read_jsonl(data / f"{t}/level{lvl}/dev.jsonl")]

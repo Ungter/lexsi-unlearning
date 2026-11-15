@@ -1,0 +1,4 @@
+# Refit A15 target + retain-only again (Nov 14 07:12 EST): the first A15 weights were deleted by mistake (see
+# docs/AYA.md); same recipe, the first run's replay file, H200 boxes (>= 130 GB) for speed.
+--job script --job-script scripts/vast/jobs/refit_one.sh --script-args "target A15 --epochs 15 --lr 5e-5 --replay-frac 0.5 --anchor-tokens 850000 --anchor-loss kl" --tag ftA15t2 --min-gpu-ram 130 --max-dph 5 --extra-env REPLAY_URI=s3://lexsi-hackathon/runs/script-20261114-031314-ftA15t-9ff8/work/replay.jsonl
+--job script --job-script scripts/vast/jobs/refit_one.sh --script-args "retain A15 --epochs 15 --lr 5e-5 --replay-frac 0.5 --anchor-tokens 850000 --anchor-loss kl" --tag ftA15r3 --min-gpu-ram 130 --max-dph 5 --extra-env REPLAY_URI=s3://lexsi-hackathon/runs/script-20261114-031314-ftA15t-9ff8/work/replay.jsonl

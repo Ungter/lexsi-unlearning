@@ -1,0 +1,21 @@
+# Wave 1 (Nov 14 ~07:15 EST): reference = aya-muse-target-A15 / aya-muse-retain-A15. Prep (selfgen + localizer),
+# dev selfgen, reference evals, and 16 unlearning sweep boxes (they wait for the selfgen / localizer files).
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_prep.txt --tag prep --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/selfgen_dev.sh --tag sgdev --min-gpu-ram 40 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_ref.txt --tag ref --min-gpu-ram 40 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_npo.txt --tag alg_npo --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_rmu.txt --tag alg_rmu --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_ga.txt --tag alg_ga --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_gd.txt --tag alg_gd --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_full.txt --tag alg_full --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_full2.txt --tag alg_full2 --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_masked.txt --tag alg_mask --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_alg_masked2.txt --tag alg_mask2 --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_full.txt --tag book_full --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_masked.txt --tag book_mask --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_masked2.txt --tag book_mask2 --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_grad.txt --tag book_grad --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_grad2.txt --tag book_grad2 --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_npo.txt --tag book_npo --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_book_rmu.txt --tag book_rmu --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_ladder.txt --tag ladder --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=${T}

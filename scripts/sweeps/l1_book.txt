@@ -1,4 +1,7 @@
-# Phase 7 L1 (PLAN 7.4): masked all-weight NPO-KL restricted to the editing agent's book unit list (4,220 MLP units,
+# Tiny Aya port (aya branch): the LFM3 unit list (surgery/l1/book, localize/v1/l1_book) indexes LFM3 w2 columns and is
+# NOT valid here. Needs an Aya editing-agent unit list as scores.pt under $LOCALIZE_URI/l1_book (default
+# aya/localize/v1); LFM3 layers 19-23 correspond to Aya layers 28-35 (x 1.5); units = mlp.down_proj neurons (11,008/layer).
+# Phase 7 L1 (PLAN 7.4): masked all-weight NPO-KL restricted to the editing agent's book unit list (LFM3: 4,220 MLP units,
 # layers 19-23, 0.5% of parameters; s3://lexsi-hackathon/surgery/l1/book, copied to localize/v1/l1_book) and its
 # same-size random control (same units per tensor). Recipe = the Phase-5 localized book NPO (mnpo_book_lr1e-3).
 l1_book_npo --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/l1_book/scores.pt

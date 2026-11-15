@@ -6,8 +6,10 @@
 set -uo pipefail
 source scripts/vast/common.sh
 JLENS_SHA=581d398613e5602a5af361e1c34d3a92ea82ba8e
-BASE_LENS_URI=${BASE_LENS_URI:-$BUCKET_URI/jspace/script-20261109-034952/base/lens.pt}
-QUESTIONS_URI=${QUESTIONS_URI:-$BUCKET_URI/jspace/inputs/knowmem_forget_qa_jspace_v3.jsonl}
+# Tiny Aya port: the base lens must be the Aya base lens from jspace.sh ($BUCKET_URI/aya/jspace/<RUN_ID>/base/lens.pt);
+# the LFM3 default was removed (an LFM3 lens has the wrong shapes for Aya).
+BASE_LENS_URI=${BASE_LENS_URI:?set BASE_LENS_URI to the Tiny Aya base lens (jspace.sh output)}
+QUESTIONS_URI=${QUESTIONS_URI:-$BUCKET_URI/aya/jspace/inputs/knowmem_forget_qa_jspace_v3.jsonl}
 mkdir -p work/jspace models results/jspace
 
 stage "install jlens@${JLENS_SHA:0:7} (--no-deps)"

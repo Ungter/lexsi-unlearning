@@ -1,0 +1,7 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on masked NPO and RMU (+ local ablation at the RMU layers 16-18)
+12_relearn.py rl_mnpo_book s3://lexsi-hackathon/models/script-20261114-083742-book_mask-ccdb/mnpo_book_lr1e-3 --domain book
+12_relearn.py rlf_mnpo_book s3://lexsi-hackathon/models/script-20261114-083742-book_mask-ccdb/mnpo_book_lr1e-3 --domain book --kinds forget --full --lr 1e-5
+20_weight_attacks.py wa_mnpo_book s3://lexsi-hackathon/models/script-20261114-083742-book_mask-ccdb/mnpo_book_lr1e-3 --domain book
+12_relearn.py rl_book_rmu_l18 s3://lexsi-hackathon/models/script-20261114-085118-book_rmu-a488/book_rmu_l18_c20_a100 --domain book
+12_relearn.py rlf_book_rmu_l18 s3://lexsi-hackathon/models/script-20261114-085118-book_rmu-a488/book_rmu_l18_c20_a100 --domain book --kinds forget --full --lr 1e-5
+17_local_abl.py la_book_rmu_l18 s3://lexsi-hackathon/models/script-20261114-085118-book_rmu-a488/book_rmu_l18_c20_a100 --domain book --layers 16,17,18 --sites resid,mlp,attn --ref s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15

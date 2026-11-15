@@ -3,13 +3,16 @@
 # selfgen files, lens, FineWeb anchor, localizer scores and the unedited target's reference dev scores), runs the
 # selftest, then serves commands queued by scripts/vast/surg_remote.py (see scripts/vast/surg_worker.py).
 #   args: MAX_HOURS (default 12) IDLE_HOURS (default 2)
+# Tiny Aya port: TARGET_URI (the aya-muse-target checkpoint) is required; the bundle must be rebuilt for Aya
+# (work/surgery/selfgen{,_dev}_v3.jsonl from the Aya target, work/surgery/target_v3_lens.pt = the Aya target lens,
+# results/localize/{book,calculus}/scores.pt, results/surgery/target_ref/dev.json, work/fineweb_anchor.jsonl).
 set -uo pipefail
 source scripts/vast/common.sh
 MAX_HOURS=${1:-12}
 IDLE_HOURS=${2:-2}
-TARGET_URI=${TARGET_URI:-$BUCKET_URI/models/script-20261109-044309/lfm3-muse-target-A}
-DATA_URI=${DATA_URI:-$BUCKET_URI/data/phase2-20261109.tgz}
-BUNDLE_URI=${BUNDLE_URI:-$BUCKET_URI/surgery/bundle-v1.tgz}
+TARGET_URI=${TARGET_URI:?set TARGET_URI to the Tiny Aya aya-muse-target checkpoint}
+DATA_URI=${DATA_URI:-$BUCKET_URI/aya/data/phase2.tgz}
+BUNDLE_URI=${BUNDLE_URI:-$BUCKET_URI/aya/surgery/bundle-v1.tgz}
 JLENS_SHA=581d398613e5602a5af361e1c34d3a92ea82ba8e  # anthropics/jacobian-lens "Initial release", as in jspace.sh
 
 stage "surgery: install jlens@${JLENS_SHA:0:7} (--no-deps)"

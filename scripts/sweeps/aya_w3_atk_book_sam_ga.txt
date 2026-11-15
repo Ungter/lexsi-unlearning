@@ -1,0 +1,8 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on book SAM-NPO and GA
+12_relearn.py rl_book_npo_sam s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npo_sam_r0.1_lr3e-5 --domain book
+12_relearn.py rlf_book_npo_sam s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npo_sam_r0.1_lr3e-5 --domain book --kinds forget --full --lr 1e-5
+11_abliterate.py abl_book_npo_sam s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npo_sam_r0.1_lr3e-5 --domain book
+20_weight_attacks.py wa_book_npo_sam s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npo_sam_r0.1_lr3e-5 --domain book
+12_relearn.py rl_book_ga s3://lexsi-hackathon/models/script-20261114-084106-book_grad-be23/book_ga_lr1e-6_s100 --domain book
+12_relearn.py rlf_book_ga s3://lexsi-hackathon/models/script-20261114-084106-book_grad-be23/book_ga_lr1e-6_s100 --domain book --kinds forget --full --lr 1e-5
+20_weight_attacks.py wa_book_ga s3://lexsi-hackathon/models/script-20261114-084106-book_grad-be23/book_ga_lr1e-6_s100 --domain book

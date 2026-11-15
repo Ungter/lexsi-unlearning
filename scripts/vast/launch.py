@@ -54,7 +54,10 @@ JOBS = ("baseline", "eval", "finetune", "script")
 def load_secrets() -> dict:
     from dotenv import dotenv_values
 
-    env = dotenv_values(ROOT / ".env")
+    path = ROOT / ".env"
+    if not path.exists():  # git worktree (e.g. the aya branch next to the main checkout): share the main checkout's secrets
+        path = ROOT.parent / "lexsi-unlearning" / ".env"
+    env = dotenv_values(path)
     missing = [k for k in ("HF_API", "TIGRIS_ACCESS_ID", "TIGRIS_SECRET", "ENDPOINT") if not env.get(k)]
     if missing:
         sys.exit(f"missing in .env: {missing}")
@@ -82,9 +85,16 @@ def vast(*args: str, raw: bool = True, confirm: bool = False):
     return out
 
 
-def pick_offer(max_dph: float, min_down: int, exclude_machines=()) -> dict:
+MIN_GPU_RAM = 24  # GB; set per launch with --min-gpu-ram (80 for full fine-tuning / unlearning of the 3.35B model)
+
+
+def pick_offer(max_dph: float, min_down: int, exclude_machines=(), min_gpu_ram: int | None = None) -> dict:
+    """Any GPU model (not only RTX PRO 6000): >= min_gpu_ram GB, >= min_down Mbps, CUDA >= 13 for the cu130 image.
+    Takes the fastest (dlperf) tier and the cheapest offer within 3% of it; machines in exclude_machines are skipped
+    (stalled hosts, or offers already taken by a parallel launch)."""
+    ram = MIN_GPU_RAM if min_gpu_ram is None else min_gpu_ram
     q = (f"inet_down>={min_down} cuda_max_good>=13.0 num_gpus=1 reliability>0.97 disk_space>={DISK_GB} "
-         f"rentable=true verified=true dph_total<={max_dph} gpu_ram>=24")
+         f"rentable=true verified=true dph_total<={max_dph} gpu_ram>={ram}")
     offers = vast("search", "offers", q, "-o", "dlperf-")  # results are capped, so sort by speed server-side
     offers = [o for o in offers if o.get("machine_id") not in set(exclude_machines)]
     if not offers:
@@ -154,7 +164,7 @@ def cmd_up(a) -> None:
     if a.offer:  # the CLI warns about ask_contract_id but the API filters on it ("id=" matches nothing)
         offer = next((o for o in vast("search", "offers", f"ask_contract_id={a.offer}") if o["id"] == a.offer), None)
     else:
-        offer = pick_offer(a.max_dph, a.min_down)
+        offer = pick_offer(a.max_dph, a.min_down, exclude_machines=a.exclude_machines, min_gpu_ram=a.min_gpu_ram)
     if offer is None:
         sys.exit(f"offer {a.offer} not available")
     print(json.dumps({"run_id": run_id, "image": IMAGE, **offer_brief(offer)}, indent=2))
@@ -173,6 +183,13 @@ def cmd_up(a) -> None:
         env["EVAL_MODELS"] = a.models
     if a.job_script:
         env["JOB_SCRIPT"] = a.job_script
+    for kv in (a.extra_env or "").split(","):  # job-script settings, e.g. TARGET_URI=s3://...,SELFGEN_URI=s3://...
+        if not kv:
+            continue
+        k, _, v = kv.partition("=")
+        if not re.fullmatch(r"[A-Z][A-Z0-9_]*", k) or not re.fullmatch(r"[\w./:=+-]*", v):
+            sys.exit(f"--extra-env entry must be NAME=plain-value: {kv}")
+        env[k] = v
     if any(c in s for s in (a.eval_args, a.ft_args, a.script_args) for c in "'\"\\$`") or not all(
             re.fullmatch(r"[\w./:=,+-]*", s) for s in (a.model_uri or "", a.eval_name, a.replay_uri or "",
                                                        a.models or "", a.job_script or "")):
@@ -184,14 +201,21 @@ def cmd_up(a) -> None:
     STATE.mkdir(parents=True, exist_ok=True)
     stalled: list[int] = []
     for attempt in range(a.retries + 1):
-        if attempt:  # the previous host stalled: re-pick automatically, skipping the machines that stalled
-            offer = pick_offer(a.max_dph, a.min_down, exclude_machines=stalled)
+        if attempt:  # the previous host stalled or was taken: re-pick automatically, skipping those machines
+            offer = pick_offer(a.max_dph, a.min_down, exclude_machines=[*a.exclude_machines, *stalled], min_gpu_ram=a.min_gpu_ram)
             print(json.dumps({"retry": attempt, **offer_brief(offer)}, indent=2))
-        res = vast("create", "instance", str(offer["id"]), "--image", IMAGE, "--disk", str(DISK_GB),
-                   "--env", " ".join(f"-e {k}={v}" for k, v in env.items()), "--onstart-cmd", onstart,
-                   "--ssh", "--direct", "--label", f"lexsi-{run_id}", "--cancel-unavail")
+        try:
+            res = vast("create", "instance", str(offer["id"]), "--image", IMAGE, "--disk", str(DISK_GB),
+                       "--env", " ".join(f"-e {k}={v}" for k, v in env.items()), "--onstart-cmd", onstart,
+                       "--ssh", "--direct", "--label", f"lexsi-{run_id}", "--cancel-unavail")
+        except SystemExit as e:  # offer taken by a parallel launch (no_such_ask) or similar: try the next machine
+            print(f"create on offer {offer['id']} failed ({e}); re-picking", flush=True)
+            stalled.append(offer.get("machine_id"))
+            continue
         if not res.get("success"):
-            sys.exit("create failed")
+            print(f"create on offer {offer['id']} failed ({res}); re-picking", flush=True)
+            stalled.append(offer.get("machine_id"))
+            continue
         iid = res["new_contract"]
         st = {"run_id": run_id, "job": a.job, "instance_id": iid, "machine_id": offer.get("machine_id"), "image": IMAGE,
               "s3_prefix": prefix, "code_sha": env["CODE_SHA"], "eval_args": a.eval_args, "ft_args": a.ft_args,
@@ -212,11 +236,18 @@ def wait_running(instance_id: int, timeout_s: float) -> bool:
     """Poll until the container is running (True) or timeout_s passes (False). Healthy hosts take 1-6 min;
     stalled image pulls sit in 'loading' indefinitely and are billed."""
     t0 = time.time()
+    misses = 0
     while time.time() - t0 < timeout_s:
         try:
             inst = vast("show", "instance", str(instance_id))
         except SystemExit:
             inst = {}
+        if not inst or not inst.get("id"):  # destroyed from outside (or by a reaper): never re-pick for it
+            misses += 1
+            if misses >= 3:
+                sys.exit(f"instance {instance_id} disappeared while starting; not re-picking")
+        else:
+            misses = 0
         if inst.get("actual_status") == "running":
             print(f"instance {instance_id} running after {(time.time() - t0) / 60:.1f} min", flush=True)
             return True
@@ -336,7 +367,12 @@ def main() -> None:
     up.add_argument("--keep", action="store_true", help="do not let the instance destroy itself when the job ends")
     up.add_argument("--load-timeout", type=float, default=10.0,
                     help="minutes to wait for the container to start before destroying the host and re-picking (0 = don't wait)")
-    up.add_argument("--retries", type=int, default=2, help="re-picks after stalled hosts")
+    up.add_argument("--retries", type=int, default=4, help="re-picks after stalled hosts or taken offers")
+    up.add_argument("--min-gpu-ram", type=int, default=MIN_GPU_RAM,
+                    help="GB; 80 for full fine-tuning / unlearning of Tiny Aya (3.35B, fp32 upcast), 24 for vLLM evals")
+    up.add_argument("--extra-env", default="", help="comma list NAME=value exported to the job (e.g. TARGET_URI=s3://...)")
+    up.add_argument("--exclude-machines", type=lambda s: [int(x) for x in s.split(",") if x], default=[],
+                    help="comma list of machine ids to skip")
     up.add_argument("--dry-run", action="store_true")
     sub.add_parser("reap")
     for name in ("status", "logs", "fetch", "down"):

@@ -3,9 +3,10 @@
   ga        unlearn.GradientAscentTrainer (grad_ascent: loss = -CE(forget)); full weights
   graddiff  unlearn.GradDiffTrainer (-CE(forget) + CE(retain)); full weights
   gakl      unlearn.GradientAscentTrainer(forget_loss="KL") (-CE(forget) + KL(model || frozen copy | retain))
-  npo       unlearn.NPOTrainer variant npo_KL, LoRA on LFM3's projections (merged after training)
+  npo       unlearn.NPOTrainer variant npo_KL, LoRA on Tiny Aya's projections (arch.LORA_TARGETS; merged after training)
   npo_full  safetune.unlearn.npo_unlearn variant npo_KL on ALL weights (fp32, no LoRA; frozen fp32 reference copy)
-  rmu       safetune.unlearn.rmu_unlearn, w2 of layers L-2..L, activations of layer L steered to a random direction
+  rmu       safetune.unlearn.rmu_unlearn, mlp.down_proj of layers L-2..L, activations of layer L steered to a random
+            direction (default L = 10 of 36: LFM3's L = 7 of 24 scaled by 1.5 and rounded down)
   ablate    zero the input columns of the --mask units (no training)
   npo_sam   npo_full with SAM on the forget loss (lfm3u.unlearn.sam; Fan et al. 2025), perturbation radius --rho
 
@@ -16,6 +17,10 @@
 Data: lfm3u.unlearn.data.build (frozen Phase-2 train splits; calculus uses scripts/06_selfgen.py output). Batches
 pack several sequences per step (--batch-tokens). SafeTune trains in fp32 (upcast); TF32 matmuls and gradient
 checkpointing (not for RMU) keep it fast enough. Saves a bf16 checkpoint with lfm3u_meta.json and the run log.
+
+Tiny Aya port: 36 layers (LFM3 24), so layer indices scale by 1.5; the vocabulary is 262k (LFM3 65k) and SafeTune
+materialises full fp32 logits (1 MB per token, plus reference and log-softmax copies), so the default --batch-tokens
+is 1024 (LFM3 4096). Mask kinds are mlp (down_proj neurons) and head (o_proj head columns); there is no conv.
 """
 from __future__ import annotations
 
@@ -29,10 +34,11 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lfm3u import ckpt  # noqa: E402
+from lfm3u import arch, ckpt  # noqa: E402
 from lfm3u.unlearn.data import build  # noqa: E402
 
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj", "out_proj", "w1", "w2", "w3"]
+LORA_TARGETS = list(arch.LORA_TARGETS)
+DEFAULT_RMU_LAYER = arch.N_LAYERS * 7 // 24  # LFM3 default 7 of 24 -> 10 of 36
 METHODS = ("ga", "graddiff", "gakl", "npo", "npo_full", "npo_sam", "rmu", "ablate")
 MASKABLE = ("npo_full", "rmu", "ablate")
 
@@ -132,7 +138,7 @@ def run(method: str, model, a, forget, retain, masks=None):
         dev = next(model.parameters()).device
         move = lambda bs: [{k: v.to(dev) for k, v in b.items()} for b in bs]  # noqa: E731
         cfg = U.RMUConfig(layer_id=a.layer, update_layer_ids=[a.layer - 2, a.layer - 1, a.layer],
-                          param_substring="feed_forward.w2", steering_coeff=a.coeff, alpha=a.alpha, lr=a.lr,
+                          param_substring=arch.MLP_WRITER, steering_coeff=a.coeff, alpha=a.alpha, lr=a.lr,
                           max_num_batches=a.steps)
         torch.manual_seed(a.seed)
         if not masks:
@@ -163,25 +169,28 @@ def main() -> None:
     ap.add_argument("--epochs", type=int, default=5)
     ap.add_argument("--beta", type=float, default=0.1, help="npo")
     ap.add_argument("--rho", type=float, default=0.01, help="npo_sam perturbation radius (paper grid 1e-3..1e-1)")
-    ap.add_argument("--layer", type=int, default=7, help="rmu")
+    ap.add_argument("--layer", type=int, default=None,
+                    help=f"rmu target layer (default {DEFAULT_RMU_LAYER} = 7/24 of the depth; LFM3 used 7)")
     ap.add_argument("--coeff", type=float, default=20.0, help="rmu steering coefficient")
     ap.add_argument("--alpha", type=float, default=100.0, help="rmu retain weight")
     ap.add_argument("--n-forget", type=int, default=0, help="forget items (0 = all)")
     ap.add_argument("--n-retain", type=int, default=0, help="retain items (0 = all)")
     ap.add_argument("--retain-scope", choices=("all", "general"), default="all",
                     help="general = retain only on general chat answers (depth-ladder variant without the topic anchor)")
-    ap.add_argument("--batch-tokens", type=int, default=4096)
+    ap.add_argument("--batch-tokens", type=int, default=1024, help="tokens per packed batch (LFM3: 4096; 262k-vocab logits)")
     ap.add_argument("--max-len", type=int, default=4096)
     ap.add_argument("--no-grad-ckpt", action="store_true")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--no-save", action="store_true")
     ap.add_argument("--mask", default=None, help="localizer scores.pt: restrict npo_full/rmu/ablate to the top units")
     ap.add_argument("--mask-frac", type=float, default=0.005, help="mask budget, fraction of all parameters")
-    ap.add_argument("--mask-kinds", default="mlp,head,conv")
+    ap.add_argument("--mask-kinds", default="mlp,head", help="mlp (down_proj neurons) and/or head (o_proj heads)")
     ap.add_argument("--mask-lambda", type=float, default=1.0, help="forget-specific score = s_forget - lambda * s_retain")
     ap.add_argument("--mask-max-layer", type=int, default=None, help="only units in layers <= this (rmu: always --layer)")
     ap.add_argument("--mask-random", action="store_true", help="same-size random-mask control")
     a = ap.parse_args()
+    if a.layer is None:
+        a.layer = DEFAULT_RMU_LAYER
     if (a.mask or a.method == "ablate") and a.method not in MASKABLE:
         sys.exit(f"--mask works with {MASKABLE}")
     if a.method == "ablate" and not a.mask:

@@ -9,6 +9,8 @@ import json
 import re
 import sys
 
+from lfm3u.audit.attacksets import algebra
+
 SUFFIX = " Give the final answer on the last line as 'Answer: <expression>'."
 JACCARD_MAX = 0.8
 
@@ -24,6 +26,7 @@ _KEYWORDS = {
     "trig": ["compute", "evaluate", "calculate", "value", "find", "determine", "what is", "work out"],
     "log": ["compute", "evaluate", "calculate", "value", "find", "determine", "what is", "work out"],
     "identity": ["simplify", "simplified", "reduce", "simplest", "simpler", "equivalent", "evaluate", "express"],
+    "eval": ["compute", "evaluate", "calculate", "value", "find", "determine", "what is", "work out", "result"],
 }
 
 
@@ -84,6 +87,8 @@ def check_row(r: dict) -> list[str]:
         bad.append("wrong_operation_word")
     if kind in ("integral", "defint") and re.search(r"(?<!anti)derivative|(?<!anti)differentiat", low_noexpr):
         bad.append("wrong_operation_word")
+    if r.get("topic") == "algebra":  # algebra items mostly have no expr: check the question's math spans + answer form
+        bad += algebra.paraphrase_errors(r, para)
     return bad
 
 

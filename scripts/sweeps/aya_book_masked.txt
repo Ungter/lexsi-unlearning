@@ -1,0 +1,5 @@
+# Tiny Aya, book target: localized (masked) unlearning vs random-unit controls (LFM3 m4, m5, k1).
+abl_book --target book --method ablate --mask work/localize/book/scores.pt
+mnpo_book_lr1e-3 --target book --method npo_full --lr 1e-3 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt
+mnpo_book_rand_lr1e-3 --target book --method npo_full --lr 1e-3 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt --mask-random
+mnpo_book_lr3e-4 --target book --method npo_full --lr 3e-4 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt

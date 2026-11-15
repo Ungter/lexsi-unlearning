@@ -4,8 +4,8 @@ The numbers do not match scripts/08_dev_eval.py (vLLM, larger subsets, 3,072-tok
 unedited target scored by this module (results/surgery/target_ref/dev.json).
 
 Teacher-forced tasks (seconds)
-  nll_calc         target's own correct calculus dev solutions (selfgen_dev_v3), mean NLL per answer token   [forget]
-  nll_retain_math  same for algebra / precalculus dev solutions                                             [retain]
+  nll_calc         target's own correct MATH_TARGET dev solutions (selfgen_dev_v3), mean NLL per answer token [forget]
+  nll_retain_math  same for the arch.MATH_RETAIN topics' dev solutions                                     [retain]
   nll_book_forget  NLL of the true continuation of the verbmem passages (15 unseen dev + 25 train)           [forget]
   nll_book_retain  NLL of raw_retain{1,2}_dev chunks (60)                                                    [retain]
   ppl_web          perplexity on the 64 held-out FineWeb anchor docs (the last 64 of work/fineweb_anchor.jsonl,
@@ -18,13 +18,20 @@ Generation tasks (greedy)
   verbmem_seen     25 of the 60 train passages
   knowmem_forget   74 forget questions (train + dev), MUSE ICL prompt: fact presence, ROUGE-L recall, flags
   knowmem_retain   76 retain questions
-  calc             calculus dev, n per level, chat template with thinking off: accuracy + truncated / gibberish /
-                   no-answer rates and mean tokens
-  retain_math      arithmetic / algebra / precalculus dev, n per topic and level
+  calc             arch.MATH_TARGET dev, n per level, chat template (Tiny Aya has no thinking mode): accuracy +
+                   truncated / gibberish / no-answer rates and mean tokens
+  retain_math      arch.MATH_RETAIN dev, n per topic and level
+Aya branch: every 'calc' name (and the surgery target key 'calculus') means arch.MATH_TARGET = algebra; retain math =
+arch.MATH_RETAIN = arithmetic / precalculus / calculus. Selfgen sources 'calculus' / 'retain_math' passed to selfgen /
+selfgen_train are mapped to those topics (MATH_SOURCES).
 Gibberish = grade.is_gibberish (repeated word 4-grams) OR `degenerate` (repeated character 8-grams; added after
 the first book session, where a jammed model emitted ":::::" and "11111" runs that the word-level flag scored as
 clean). Fluent nonsense is still missed, so generations are stored (<out>/generations*/<task>.jsonl) and should be
 read before a patch is called clean.
+
+Tiny Aya port: prompts / BOS / stop tokens come from lfm3u.arch; logits from hidden states are multiplied by
+config.logit_scale (as Cohere2ForCausalLM.forward does); the 262k-vocab lm_head runs on 256-row chunks; the KV budget
+of `generate` is sized for 36 layers x 4 KV heads x 128 dims (~74 KB/token in bf16).
 """
 from __future__ import annotations
 
@@ -34,6 +41,8 @@ import random
 import time
 import zlib
 from pathlib import Path
+
+from lfm3u import arch
 
 ROOT = Path(__file__).resolve().parents[3]
 SELFGEN_DEV = ROOT / "work/surgery/selfgen_dev_v3.jsonl"
@@ -49,7 +58,7 @@ PRESETS = {
     "full": (*TEACHER, "mmlu_val", "verbmem_unseen", "verbmem_seen", "knowmem_forget", "knowmem_retain", "calc", "retain_math"),
 }
 DEFAULTS = {"calc_per_level": 20, "retain_per_level": 4, "calc_max_new": 2048, "retain_max_new": 1536, "nll_items": 48,
-            "seen_passages": 25, "kv_tokens": 130_000, "seed": 0}
+            "seen_passages": 25, "kv_tokens": 64_000, "seed": 0}  # 64k KV tokens ~ 4.7 GB on Tiny Aya
 
 
 def log(msg: str) -> None:
@@ -74,22 +83,46 @@ def read_dev(rel: str) -> list[dict]:
 # ------------------------------------------------------------------ prompts
 
 def chat_ids(tok, text: str, thinking: bool = False) -> list[int]:
-    t = tok.apply_chat_template([{"role": "user", "content": text}], add_generation_prompt=True, tokenize=False,
-                                enable_thinking=thinking)
-    return tok(t, add_special_tokens=False)["input_ids"]
+    """Chat prompt ending with <|START_RESPONSE|>. `thinking` is accepted and ignored (no thinking mode)."""
+    return arch.chat_ids(tok, text, thinking)
 
 
 def raw_ids(tok, text: str) -> list[int]:
-    return [tok.bos_token_id, *tok(text, add_special_tokens=False)["input_ids"]]
+    return arch.raw_ids(tok, text)
 
 
 def eos_ids(tok) -> list[int]:
-    return sorted({i for i in (tok.eos_token_id, tok.convert_tokens_to_ids("<|im_end|>")) if isinstance(i, int) and i >= 0})
+    return arch.eos_ids(tok)
+
+
+def bos(tok) -> list[int]:
+    """[BOS] (or [] if the tokenizer has none), to prefix pre-tokenized raw text."""
+    return [tok.bos_token_id] if tok.bos_token_id is not None else []
+
+
+def chunk_ids(tok, row: dict) -> list[int]:
+    """Token ids of a raw book chunk, re-tokenised from its text with THIS tokenizer (stored input_ids may come from
+    the LFM3 tokenizer if the data tarball predates the port)."""
+    if row.get("text") is not None:
+        return tok(row["text"], add_special_tokens=False)["input_ids"]
+    return list(row["input_ids"])
+
+
+def logit_scale(model) -> float:
+    s = getattr(model, "logit_scale", None)
+    if s is None:
+        s = getattr(model.config, "logit_scale", None)
+    return float(s) if s is not None else 1.0
+
+
+def logits(model, h):
+    """fp32 next-token logits from final (normed) hidden states: lm_head(h) * logit_scale."""
+    return model.lm_head(h).float() * logit_scale(model)
 
 
 # ------------------------------------------------------------------ model calls
 
-def generate(model, tok, prompts: list[list[int]], max_new: int, kv_tokens: int = 110_000) -> list[dict]:
+def generate(model, tok, prompts: list[list[int]], max_new: int, kv_tokens: int = 64_000) -> list[dict]:
     """Greedy batched generation (left padding). Batch size keeps batch * (prompt + new tokens) under kv_tokens."""
     import torch
 
@@ -128,10 +161,11 @@ def hidden(model, ids, att):
     return model.model(input_ids=ids, attention_mask=att, use_cache=False).last_hidden_state
 
 
-def seq_logprobs(model, tok, seqs: list[list[int]], starts: list[int], batch_tokens: int = 12_288, chunk: int = 512) -> list[list[float]]:
+def seq_logprobs(model, tok, seqs: list[list[int]], starts: list[int], batch_tokens: int = 12_288, chunk: int = 256) -> list[list[float]]:
     """Teacher-forced log p of tokens at positions >= start (start >= 1), one list per sequence. The lm_head runs on
-    fixed-size chunks of positions: full-vocabulary logits for a whole batch do not fit in 12 GB, and chunks of varying
-    size fragment the CUDA allocator until it spills into shared memory (Windows), which stalls the run."""
+    fixed-size chunks of positions: full-vocabulary logits for a whole batch do not fit in 12 GB (262k vocab: 1 MB per
+    position in fp32, so a 256-row chunk is 256 MB plus its log_softmax), and chunks of varying size fragment the CUDA
+    allocator until it spills into shared memory (Windows), which stalls the run."""
     import torch
 
     pad = tok.pad_token_id
@@ -166,7 +200,7 @@ def seq_logprobs(model, tok, seqs: list[list[int]], starts: list[int], batch_tok
                 k = rows.shape[0]
                 if k < chunk:                                            # keep every logits allocation the same size
                     rows = torch.cat([rows, rows.new_zeros(chunk - k, rows.shape[1])])
-                lg = torch.log_softmax(model.lm_head(rows).float(), -1)
+                lg = torch.log_softmax(logits(model, rows), -1)
                 lp[c:c + k] = lg[:k].gather(1, tgt[c:c + k, None])[:, 0]
                 del lg
         flat, pos = lp.tolist(), 0
@@ -252,19 +286,19 @@ def grade_math(rows: list[dict], texts: list[str], timeout: int = 30, procs: int
 def direction_prompts(tok, target: str, n: int = 64, split: str = "train") -> tuple[list[list[int]], list[list[int]]]:
     """(forget, contrast) prompt sets for a mean-difference direction, as in scripts/11_abliterate.py but from TRAIN
     items by default, so that the dev items stay clean for scoring.
-      calculus  calculus instructions vs arithmetic / algebra / precalculus instructions (chat template, thinking off)
+      calculus  calculus instructions vs arithmetic / algebra / precalculus instructions (chat template)
       book      first 128 tokens of raw_forget_train chunks vs raw_retain1_train chunks"""
-    if target == "calculus":
-        fr = [r for lvl in (1, 2, 3) for r in read_dev(f"calculus/level{lvl}/{split}.jsonl")]
-        cr = [r for t in ("arithmetic", "algebra", "precalculus") for lvl in (1, 2, 3) for r in read_dev(f"{t}/level{lvl}/{split}.jsonl")]
+    if target in ("calculus", arch.MATH_TARGET):  # 'calculus' = the math-target session key (arch.MATH_TARGET)
+        fr = [r for lvl in (1, 2, 3) for r in read_dev(f"{arch.MATH_TARGET}/level{lvl}/{split}.jsonl")]
+        cr = [r for t in arch.MATH_RETAIN for lvl in (1, 2, 3) for r in read_dev(f"{t}/level{lvl}/{split}.jsonl")]
         seeded("abl", "f").shuffle(fr)
         seeded("abl", "c").shuffle(cr)
         return [chat_ids(tok, r["instruction"]) for r in fr[:n]], [chat_ids(tok, r["instruction"]) for r in cr[:n]]
     fc, rc = read_dev("book/raw_forget_train.jsonl"), read_dev("book/raw_retain1_train.jsonl")
     seeded("abl", "f").shuffle(fc)
     seeded("abl", "c").shuffle(rc)
-    bos = tok.bos_token_id
-    return [[bos, *r["input_ids"][:128]] for r in fc[:n]], [[bos, *r["input_ids"][:128]] for r in rc[:n]]
+    b = bos(tok)
+    return [[*b, *chunk_ids(tok, r)[:128]] for r in fc[:n]], [[*b, *chunk_ids(tok, r)[:128]] for r in rc[:n]]
 
 
 def book_chunks(tok, kind: str, n: int, seed: int = 0, max_len: int = 512) -> list[list[int]]:
@@ -272,14 +306,14 @@ def book_chunks(tok, kind: str, n: int, seed: int = 0, max_len: int = 512) -> li
     rows = read_dev("book/raw_forget_train.jsonl") if kind == "forget" else \
         read_dev("book/raw_retain1_train.jsonl") + read_dev("book/raw_retain2_train.jsonl")
     seeded("chunks", kind, seed).shuffle(rows)
-    return [[tok.bos_token_id, *r["input_ids"][:max_len]] for r in rows[:n]]
+    return [[*bos(tok), *chunk_ids(tok, r)[:max_len]] for r in rows[:n]]
 
 
 def web_chunks(tok, n: int, seed: int = 0, max_len: int = 512) -> list[list[int]]:
     """BOS + first max_len tokens of FineWeb anchor docs, excluding the 64 held-out docs used for ppl_web."""
     docs = [json.loads(line) for line in ANCHOR.read_text(encoding="utf-8-sig").splitlines() if line.strip()][:-ANCHOR_VAL]
     seeded("web", seed).shuffle(docs)
-    return [[tok.bos_token_id, *tok(d["text"][:8 * max_len], add_special_tokens=False)["input_ids"][:max_len]] for d in docs[:n]]
+    return [[*bos(tok), *tok(d["text"][:8 * max_len], add_special_tokens=False)["input_ids"][:max_len]] for d in docs[:n]]
 
 
 _HP = None
@@ -315,11 +349,11 @@ def narrative_docs() -> list[str]:
 
 def narr_chunks(tok, n: int, max_len: int = 512) -> list[list[int]]:
     """BOS + first max_len tokens of the first n (<= 150) narrative web docs (the statistics part)."""
-    return [[tok.bos_token_id, *tok(d[:8 * max_len], add_special_tokens=False)["input_ids"][:max_len]] for d in narrative_docs()[:min(n, 150)]]
+    return [[*bos(tok), *tok(d[:8 * max_len], add_special_tokens=False)["input_ids"][:max_len]] for d in narrative_docs()[:min(n, 150)]]
 
 
 def math_prompts(tok, topics: tuple, n: int, split: str = "train", seed: int = 0) -> list[list[int]]:
-    """Chat-template prompts (thinking off) for math instructions of the given topics, n in total, from `split`."""
+    """Chat-template prompts for math instructions of the given topics, n in total, from `split`."""
     rows = [r for t in topics for lvl in (1, 2, 3) for r in read_dev(f"{t}/level{lvl}/{split}.jsonl")]
     seeded("math_prompts", topics, split, seed).shuffle(rows)
     return [chat_ids(tok, r["instruction"]) for r in rows[:n]]
@@ -327,13 +361,25 @@ def math_prompts(tok, topics: tuple, n: int, split: str = "train", seed: int = 0
 
 # ------------------------------------------------------------------ data
 
+# LFM3 selfgen source names -> math topics on this branch: 'calculus' (the forget source) = arch.MATH_TARGET,
+# 'retain_math' = arch.MATH_RETAIN; other sources ('general') match the row's source field
+MATH_SOURCES = {"calculus": (arch.MATH_TARGET,), "retain_math": arch.MATH_RETAIN}
+
+
+def _is_source(r: dict, source: str) -> bool:
+    if source not in MATH_SOURCES:
+        return r["source"] == source
+    topic = "calculus" if r["source"] == "calculus" else r.get("topic") if r["source"] == "retain_math" else None
+    return topic in MATH_SOURCES[source]
+
+
 def selfgen(source: str, n: int, seed: int, max_len: int = 2048) -> tuple[list[list[int]], list[int]]:
     import os
 
     if os.environ.get("LFM3U_NO_SELFGEN_DEV"):   # P6: the held-out relearning attacks train on this file
         raise RuntimeError("the dev-split selfgen file is off limits in this session (nll_calc / nll_retain_math tasks)")
     rows = [json.loads(line) for line in SELFGEN_DEV.read_text(encoding="utf-8").splitlines() if line.strip()]
-    rows = [r for r in rows if r["source"] == source and len(r["prompt_ids"]) + len(r["completion_ids"]) <= max_len]
+    rows = [r for r in rows if _is_source(r, source) and len(r["prompt_ids"]) + len(r["completion_ids"]) <= max_len]
     rows.sort(key=lambda r: r["id"])
     seeded("selfgen", source, seed).shuffle(rows)
     rows = rows[:n]
@@ -342,9 +388,10 @@ def selfgen(source: str, n: int, seed: int, max_len: int = 2048) -> tuple[list[l
 
 def selfgen_train(source: str, n: int, seed: int = 0, max_len: int = 1024, mode: str = "direct") -> list[list[int]]:
     """The target's own TRAIN-split solutions (s3://lexsi-hackathon/unlearn/selfgen_v3.jsonl -> work/surgery/), prompt +
-    completion truncated to max_len tokens. source: calculus | retain_math | general. For activation statistics."""
+    completion truncated to max_len tokens. source: calculus | retain_math | general. For activation statistics.
+    mode: only "direct" exists for Tiny Aya (no thinking mode); rows without a mode field are kept."""
     rows = [json.loads(line) for line in SELFGEN_TRAIN.read_text(encoding="utf-8").splitlines() if line.strip()]
-    rows = [r for r in rows if r["source"] == source and r.get("mode", mode) == mode]
+    rows = [r for r in rows if _is_source(r, source) and r.get("mode", mode) == mode]
     rows.sort(key=lambda r: r["id"])
     seeded("selfgen_train", source, seed).shuffle(rows)
     return [(r["prompt_ids"] + r["completion_ids"])[:max_len] for r in rows[:n]]
@@ -396,7 +443,7 @@ def t_nll_book_forget(model, tok, cfg):
 def t_nll_book_retain(model, tok, cfg):
     chunks = read_dev("book/raw_retain1_dev.jsonl") + read_dev("book/raw_retain2_dev.jsonl")
     seeded("book_retain", cfg["seed"]).shuffle(chunks)
-    seqs = [[tok.bos_token_id, *r["input_ids"]] for r in chunks[:60]]
+    seqs = [[*bos(tok), *chunk_ids(tok, r)] for r in chunks[:60]]
     return nll_summary(seq_logprobs(model, tok, seqs, [1] * len(seqs))), []
 
 
@@ -429,7 +476,7 @@ def t_mmlu_val(model, tok, cfg):
     with torch.no_grad():
         for p, r in zip(prompts, items):
             h = hidden(model, torch.tensor([p], device=dev), None)[0, -1]
-            lg = model.lm_head(h).float()[allowed.to(dev)]
+            lg = logits(model, h)[allowed.to(dev)]
             pred = letters[int(allowed[int(lg.argmax())])]
             out.append({"subject": r["subject"], "gold": utility.LETTERS[r["answer"]], "pred": pred,
                         "correct": pred == utility.LETTERS[r["answer"]]})
@@ -492,8 +539,8 @@ RUNNERS = {
     "verbmem_seen": lambda m, t, c: t_verbmem(m, t, c, "seen"),
     "knowmem_forget": lambda m, t, c: t_knowmem(m, t, c, "forget"),
     "knowmem_retain": lambda m, t, c: t_knowmem(m, t, c, "retain"),
-    "calc": lambda m, t, c: t_math(m, t, c, ("calculus",), c["calc_per_level"], c["calc_max_new"]),
-    "retain_math": lambda m, t, c: t_math(m, t, c, ("arithmetic", "algebra", "precalculus"), c["retain_per_level"], c["retain_max_new"]),
+    "calc": lambda m, t, c: t_math(m, t, c, (arch.MATH_TARGET,), c["calc_per_level"], c["calc_max_new"]),
+    "retain_math": lambda m, t, c: t_math(m, t, c, arch.MATH_RETAIN, c["retain_per_level"], c["retain_max_new"]),
 }
 
 

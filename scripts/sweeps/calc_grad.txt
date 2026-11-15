@@ -1,8 +1,11 @@
-# Calculus target: gradient-ascent family (full weights). Steps are optimizer steps of ~4k tokens (2-3 self-generated solutions).
+# Tiny Aya port (aya branch): 07_unlearn.py --batch-tokens defaults to 1024 (LFM3 4096: the 262k vocabulary makes fp32
+# logits 1 MB per token), so a step now sees ~1/4 of the LFM3 tokens; GA-KL keeps LFM3's 3/4 ratio (3072 -> 768).
+# Calculus target: gradient-ascent family (full weights). Steps are optimizer steps of ~1k tokens (LFM3: ~4k tokens,
+# 2-3 self-generated solutions; a solution longer than the budget is packed alone).
 calc_ga_lr1e-6_s100 --target calculus --method ga --lr 1e-6 --steps 100
 calc_ga_lr3e-6_s100 --target calculus --method ga --lr 3e-6 --steps 100
 calc_ga_lr3e-6_s250 --target calculus --method ga --lr 3e-6 --steps 250
 calc_graddiff_lr3e-6_s150 --target calculus --method graddiff --lr 3e-6 --steps 150
 calc_graddiff_lr1e-5_s150 --target calculus --method graddiff --lr 1e-5 --steps 150
-calc_gakl_lr3e-6_s150 --target calculus --method gakl --lr 3e-6 --steps 150 --batch-tokens 3072
-calc_gakl_lr1e-5_s150 --target calculus --method gakl --lr 1e-5 --steps 150 --batch-tokens 3072
+calc_gakl_lr3e-6_s150 --target calculus --method gakl --lr 3e-6 --steps 150 --batch-tokens 768
+calc_gakl_lr1e-5_s150 --target calculus --method gakl --lr 1e-5 --steps 150 --batch-tokens 768

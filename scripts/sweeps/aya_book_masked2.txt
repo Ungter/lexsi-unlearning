@@ -1,0 +1,5 @@
+# Tiny Aya, book target: masked RMU, more random-mask controls and a second seed of the masked NPO.
+mrmu_book_l6_c20 --target book --method rmu --layer 6 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/book/scores.pt
+mrmu_book_l6_c20_rand --target book --method rmu --layer 6 --coeff 20 --alpha 100 --lr 2e-4 --steps 80 --mask work/localize/book/scores.pt --mask-random
+mnpo_book_rand_lr3e-4 --target book --method npo_full --lr 3e-4 --epochs 3 --steps 0 --n-forget 400 --mask work/localize/book/scores.pt --mask-random
+mnpo_book_s1 --target book --method npo_full --epochs 3 --steps 0 --n-forget 400 --lr 1e-3 --mask work/localize/book/scores.pt --seed 1

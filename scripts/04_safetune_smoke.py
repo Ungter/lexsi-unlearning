@@ -5,9 +5,10 @@ points Phase 4 will use, and records what actually happened:
 
   ga        unlearn.GradientAscentTrainer (full weights, fp32 upcast)
   graddiff  unlearn.GradDiffTrainer       (full weights)
-  npo       unlearn.NPOTrainer, variant npo_KL, LoRA on LFM3's modules via safetune.configure(lora_target_modules)
-  rmu       low-level safetune.unlearn.rmu_unlearn with param_substring="feed_forward.w2" (RMUTrainer has no such
-            argument); batches moved to the GPU by hand
+  npo       unlearn.NPOTrainer, variant npo_KL, LoRA on Tiny Aya's modules via
+            safetune.configure(lora_target_modules=arch.LORA_TARGETS)
+  rmu       low-level safetune.unlearn.rmu_unlearn with param_substring="mlp.down_proj" (RMUTrainer has no such
+            argument); batches moved to the GPU by hand; default layer 10 of 36 (LFM3: 7 of 24, scaled by 1.5)
 
 Targets (frozen Phase-2 data, train/dev only):
   book      forget = book/raw_forget_train (raw text), retain = book/raw_retain1_train; probes on verbmem_forget_dev
@@ -33,11 +34,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from lfm3u import arch  # noqa: E402
 from lfm3u.data.batches import qa_batches, raw_batches  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
 
-LORA_TARGETS = ["q_proj", "k_proj", "v_proj", "o_proj", "in_proj", "out_proj", "w1", "w2", "w3"]
-LAYER_TYPES_KEY = "layer_types"
+LORA_TARGETS = list(arch.LORA_TARGETS)
+DEFAULT_RMU_LAYER = arch.N_LAYERS * 7 // 24  # LFM3 default 7 of 24 -> 10 of 36
 
 
 def log(msg: str) -> None:
@@ -60,8 +62,9 @@ def load_split(data: Path, target: str, tok, n: int, max_len: int, seed: int = 0
         verb = sample(read_jsonl(data / "book/verbmem_forget_dev.jsonl"))[:8]
         probe_f = [_continuation(tok, r["prompt"], r["target"], max_len) for r in verb]
         probe_r = raw_batches(sample(read_jsonl(data / "book/raw_retain1_dev.jsonl"))[:8], tok, max_len)[:8]
-        prompt_f = [tok.bos_token + verb[0]["prompt"][-400:]]
-        prompt_r = [tok.bos_token + read_jsonl(data / "book/raw_retain1_dev.jsonl")[0]["text"][:400]]
+        bos = tok.bos_token or ""
+        prompt_f = [bos + verb[0]["prompt"][-400:]]
+        prompt_r = [bos + read_jsonl(data / "book/raw_retain1_dev.jsonl")[0]["text"][:400]]
         return forget, retain, probe_f, probe_r, ("raw", prompt_f, prompt_r)
     rows = lambda topic, split: [r for lvl in (1, 2, 3) for r in read_jsonl(data / f"{topic}/level{lvl}/{split}.jsonl")]  # noqa: E731
     forget = qa_batches(sample(rows("calculus", "train")), tok, max_len)
@@ -76,7 +79,8 @@ def _continuation(tok, prompt: str, target: str, max_len: int) -> dict:
     import torch
 
     t = tok(target, add_special_tokens=False)["input_ids"][:max_len // 2]
-    p = [tok.bos_token_id] + tok(prompt, add_special_tokens=False)["input_ids"][-(max_len - len(t) - 1):]
+    bos = [tok.bos_token_id] if tok.bos_token_id is not None else []
+    p = bos + tok(prompt, add_special_tokens=False)["input_ids"][-(max_len - len(t) - 1):]
     ids, lab = p + t, [-100] * len(p) + t
     return {"input_ids": torch.tensor(ids), "attention_mask": torch.ones(len(ids), dtype=torch.long), "labels": torch.tensor(lab)}
 
@@ -108,8 +112,7 @@ def complete(model, tok, prompts: list[str], mode: str, n: int = 40) -> list[str
     model.eval()
     for p in prompts:
         if mode == "chat":
-            text = tok.apply_chat_template([{"role": "user", "content": p}], add_generation_prompt=True, tokenize=False,
-                                           enable_thinking=False)
+            text = arch.chat_text(tok, p, thinking=False)
         else:
             text = p
         ids = tok(text, add_special_tokens=False, return_tensors="pt")["input_ids"].to(dev)
@@ -124,7 +127,7 @@ def module_kind(name: str, layer_types: list[str]) -> str:
     parts = name.split(".")
     if "layers" in parts:
         i = int(parts[parts.index("layers") + 1])
-        sub = next((s for s in ("feed_forward", "self_attn", "conv", "operator_norm", "ffn_norm") if s in parts), "other")
+        sub = next((s for s in ("mlp", "self_attn", arch.LAYER_NORM) if s in parts), "other")
         return f"{layer_types[i] if i < len(layer_types) else '?'}:{sub}"
     return parts[-2] if len(parts) > 1 else name
 
@@ -155,7 +158,7 @@ def changed(before: dict, after: dict, layer_types: list[str]) -> dict:
 
 # ------------------------------------------------------------------ methods
 
-def run_method(method: str, model, tok, forget, retain, steps: int, model_id: str, rmu_layer: int = 7):
+def run_method(method: str, model, tok, forget, retain, steps: int, model_id: str, rmu_layer: int = DEFAULT_RMU_LAYER):
     import safetune
     from safetune.runner import unlearn
 
@@ -177,7 +180,7 @@ def run_method(method: str, model, tok, forget, retain, steps: int, model_id: st
         dev = next(model.parameters()).device
         move = lambda bs: [{k: v[None].to(dev) for k, v in b.items()} for b in bs]  # noqa: E731
         cfg = U.RMUConfig(layer_id=rmu_layer, update_layer_ids=[rmu_layer - 2, rmu_layer - 1, rmu_layer],
-                          param_substring="feed_forward.w2",
+                          param_substring=arch.MLP_WRITER,
                           steering_coeff=20.0, alpha=100.0, lr=5e-5, max_num_batches=steps)
         U.rmu_unlearn(model, retain_batches=move(retain[:steps]), forget_batches=move(forget[:steps]), config=cfg)
         if not all(torch.isfinite(p).all() for p in model.parameters()):
@@ -195,7 +198,8 @@ def main() -> None:
     ap.add_argument("--targets", default="book,calculus")
     ap.add_argument("--steps", type=int, default=10)
     ap.add_argument("--max-len", type=int, default=512)
-    ap.add_argument("--rmu-layer", type=int, default=7, help="RMU target layer; updates w2 of this layer and the two below")
+    ap.add_argument("--rmu-layer", type=int, default=DEFAULT_RMU_LAYER,
+                    help="RMU target layer; updates mlp.down_proj of this layer and the two below (LFM3 default 7 of 24)")
     a = ap.parse_args()
 
     import torch
@@ -221,7 +225,7 @@ def main() -> None:
             t0 = time.time()
             try:
                 model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(device)
-                layer_types = list(getattr(model.config, LAYER_TYPES_KEY, []))
+                layer_types = arch.layer_types(model.config)
                 rec["before"] = {"forget_nll": mean_nll(model, probe_f), "retain_nll": mean_nll(model, probe_r),
                                  "forget_sample": complete(model, tok, prompt_f, mode)[0],
                                  "retain_sample": complete(model, tok, prompt_r, mode)[0]}

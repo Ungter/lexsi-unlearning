@@ -7,6 +7,9 @@ References: results/dev/target (the reference model, = 100%) and results/dev/ret
             utility_rel = mean of run/target for mmlu_val, ifeval_think prompt-strict, knowmem_retain ICL recall,
                           and target/run perplexity for ppl_web and book retain_nll
   calculus  forget_rel = calc (direct) accuracy / target   (calc_think reported next to it)
+            Aya branch: the 'calc' task scores arch.MATH_TARGET (algebra), so any math-topic target (algebra runs
+            'alg_*', ladder rungs arithmetic / algebra / calculus) is ranked like this; run-name prefix 'calc'/'alg'
+            without metadata = MATH_TARGET.
             utility_rel = mean of mmlu_val, ifeval_think, retain_math accuracy ratios and the ppl_web ratio
   score     = (1 - forget_rel) * utility_rel. Each utility ratio is capped at 1 (no credit for noise above the target).
   status    collapsed  = utility broken: FineWeb perplexity > 1.25x target, refusal/gibberish >= 10% on a retain task,
@@ -17,13 +20,23 @@ References: results/dev/target (the reference model, = 100%) and results/dev/ret
             valid      = everything else; only valid runs are ranked by score
 
 Writes results/dev/summary.csv and summary.json; prints the ranking.
+
+Tiny Aya port: there is no thinking mode, so 'ifeval_think' is read from the ifeval_think task if the dev eval still
+writes it, else from 'ifeval' (same numbers either way). The truncation thresholds (calc > 45%, retain math > 10%) were
+calibrated on LFM3 (target truncated ~22% at 3,072 tokens); recheck them against results/dev/target for Tiny Aya.
 """
 from __future__ import annotations
 
 import argparse
 import csv
 import json
+import sys
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from lfm3u import arch  # noqa: E402
+
+MATH = arch.MATH_TOPICS  # targets scored with the calc / retain_math tasks
 
 
 def load(p: Path) -> dict | None:
@@ -34,6 +47,8 @@ def load(p: Path) -> dict | None:
 
 
 def g(r: dict, task: str, key: str):
+    if task == "ifeval_think" and not r.get(task):  # no thinking mode on Tiny Aya: fall back to the direct-mode task
+        task = "ifeval"
     return (r.get(task) or {}).get(key)
 
 
@@ -94,10 +109,10 @@ def main() -> None:
         if r is None:
             continue
         meta = json.loads((d / "dev.json").read_text(encoding="utf-8")).get("unlearn") or {}
-        target = meta.get("target") or ("calculus" if d.name.startswith("calc") else "book" if d.name.startswith("book") else "-")
+        target = meta.get("target") or (arch.MATH_TARGET if d.name.startswith(("calc", "alg")) else "book" if d.name.startswith("book") else "-")
         bf, bu = book_scores(r, t, f or t)
         cf, cu = calc_scores(r, t)
-        forget, util = (bf, bu) if target == "book" else (cf, cu) if target == "calculus" else (None, None)
+        forget, util = (bf, bu) if target == "book" else (cf, cu) if target in MATH else (None, None)
         flag = lambda tasks: max([x for x in (g(r, k, m) for k in tasks for m in ("refused", "gibberish")) if x is not None] or [0])  # noqa: E731
         forget_tasks = ("verbmem_seen", "verbmem_unseen", "knowmem_forget") if target == "book" else ("calc",)
         retain_tasks = tuple(k for k in ("knowmem_retain", "retain_math", "verbmem_seen", "verbmem_unseen", "knowmem_forget", "calc")
@@ -111,7 +126,7 @@ def main() -> None:
         loops = calc_loops or rmath_loops
         utility_broken = (not ppl_ok or flag(retain_tasks) >= 0.10 or rmath_loops
                           or (target == "book" and calc_loops) or (util is not None and util < 0.8))
-        forget_degenerate = flag(forget_tasks) >= 0.10 or (target == "calculus" and calc_loops)
+        forget_degenerate = flag(forget_tasks) >= 0.10 or (target in MATH and calc_loops)
         status = "collapsed" if utility_broken else "degenerate" if forget_degenerate else "valid"
         score = (1 - min(forget, 1.0)) * util if None not in (forget, util) else None
         score = score if status == "valid" else None
@@ -119,7 +134,7 @@ def main() -> None:
                      "forget_rel": forget, "utility_rel": util, "score": score, "valid": status == "valid", "status": status,
                      "max_refuse_gib": bad, "ppl_ok": ppl_ok, "loops": loops,
                      "forget_gibberish": max([g(r, k, "gibberish") or 0 for k in forget_tasks]),
-                     "forget_truncated": g(r, "calc", "truncated") if target == "calculus" else None,
+                     "forget_truncated": g(r, "calc", "truncated") if target in MATH else None,
                      "book_forget_rel": bf, "book_utility_rel": bu, "calc_forget_rel": cf, "calc_utility_rel": cu,
                      "verbmem_seen": g(r, "verbmem_seen", "rougeL_f1"), "verbmem_unseen": g(r, "verbmem_unseen", "rougeL_f1"),
                      "knowmem_forget_fact": g(r, "knowmem_forget", "fact"), "knowmem_retain_recall": g(r, "knowmem_retain", "rougeL_recall"),

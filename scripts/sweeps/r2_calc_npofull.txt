@@ -1,3 +1,5 @@
+# Tiny Aya port (aya branch): no layer indices here. All-weight fp32 NPO of 3.35B params + fp32 reference copy (~13 GB
+# each, plus AdamW ~27 GB) with --batch-tokens default 1024 (LFM3 4096; 262k-vocab logits).
 # Round 2: calculus NPO on all weights (low-level npo_unlearn, no LoRA). --steps 0 = run every epoch.
 calc_npofull_lr1e-5_e2 --target calculus --method npo_full --lr 1e-5 --epochs 2 --steps 0 --n-forget 400
 calc_npofull_lr3e-5_e2 --target calculus --method npo_full --lr 3e-5 --epochs 2 --steps 0 --n-forget 400

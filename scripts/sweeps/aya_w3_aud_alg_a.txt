@@ -1,0 +1,3 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): full audit of the algebra sweep winners
+alg_npo_sam_r0.1 s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domains calc
+alg_rmu_l10_c300_a100 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domains calc

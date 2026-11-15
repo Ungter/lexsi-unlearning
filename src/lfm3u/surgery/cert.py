@@ -3,18 +3,23 @@ test-split audit and the relearning attack are run later by the main session and
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+from lfm3u import arch
 
 ROOT = Path(__file__).resolve().parents[3]
 REF = ROOT / "results/surgery/target_ref/dev.json"
-BASE_URI = "s3://lexsi-hackathon/models/script-20261109-044309/lfm3-muse-target-A/"
+# Tiny Aya port: the fine-tuned target lives under an aya-muse-target* prefix; set SURGERY_BASE_URI to the exact URI
+BASE_URI = os.environ.get("SURGERY_BASE_URI", "s3://lexsi-hackathon/models/<finetune-run>/aya-muse-target/")
 # metric, label, higher-is-better for the model's usefulness (None = forget metric: lower means more forgotten)
 ROWS = (("verbmem_unseen", "book verbatim, unseen dev passages (ROUGE-L F1)", None), ("verbmem_seen", "book verbatim, train passages (ROUGE-L F1)", None),
         ("verbmem_unseen_gib", "  gibberish rate, unseen", False), ("verbmem_seen_gib", "  gibberish rate, seen", False),
         ("knowmem_forget_fact", "book knowledge, forget QA (fact presence)", None), ("knowmem_retain_fact", "book knowledge, retain QA (fact presence)", True),
         ("nll_book_forget", "NLL of true continuations, forget passages", None), ("nll_book_retain", "NLL, retain-book dev chunks", False),
-        ("calc_acc", "calculus dev accuracy", None), ("calc_trunc", "  truncated", False), ("calc_gib", "  gibberish", False),
-        ("calc_noans", "  no answer line", False), ("nll_calc", "NLL of own calculus solutions", None),
+        # 'calc' tasks score arch.MATH_TARGET on this branch (algebra); the labels said 'calculus' (LFM3 leftover)
+        ("calc_acc", f"{arch.MATH_TARGET} dev accuracy (math target)", None), ("calc_trunc", "  truncated", False), ("calc_gib", "  gibberish", False),
+        ("calc_noans", "  no answer line", False), ("nll_calc", f"NLL of own {arch.MATH_TARGET} solutions", None),
         ("retain_math_acc", "retain math dev accuracy", True), ("retain_math_trunc", "  truncated", False), ("retain_math_gib", "  gibberish", False),
         ("nll_retain_math", "NLL of own retain-math solutions", False), ("mmlu_val", "MMLU validation (200 q)", True),
         ("ppl_web", "FineWeb perplexity (64 held-out docs)", False), ("ppl_webnarr", "perplexity, 60 narrative web docs", False))

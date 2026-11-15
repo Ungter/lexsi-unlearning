@@ -1,0 +1,4 @@
+# Tiny Aya, algebra target: second half of the all-weight / LoRA NPO grid.
+alg_npo_lr1e-3_e3 --target algebra --method npo --lr 1e-3 --epochs 3 --n-forget 400
+alg_npo_sam_r0.1 --target algebra --method npo_sam --rho 0.1 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400
+alg_npo_sam_r0.01_lr3e-5 --target algebra --method npo_sam --rho 0.01 --lr 3e-5 --epochs 2 --steps 0 --n-forget 400

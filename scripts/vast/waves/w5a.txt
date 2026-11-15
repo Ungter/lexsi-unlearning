@@ -1,0 +1,2 @@
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w5_aud_undo_alg.txt --tag w5_aud_undo_alg --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w5_atk_undo_alg.txt --tag w5_atk_undo_alg --min-gpu-ram 90 --max-dph 2.4

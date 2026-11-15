@@ -1,8 +1,11 @@
+# Tiny Aya port (aya branch): 36 layers vs LFM3's 24, so RMU layers are LFM3's x 1.5 rounded down (l3 -> l4, l4 -> l6,
+# l5 -> l7, l7 -> l10); RMU updates mlp.down_proj of layers L-2..L. Run names keep the lN scheme with the NEW (Aya) layer
+# index. GA-KL --batch-tokens 3072 -> 768 (262k-vocab logits; default 1024).
 # Round 2: weak calculus RMU (looking for a non-degenerate point), one GA-KL point, book RMU layer robustness.
-calc_rmu_l4_c3_s40 --target calculus --method rmu --layer 4 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
-calc_rmu_l4_c5_s20 --target calculus --method rmu --layer 4 --coeff 5 --alpha 100 --lr 5e-5 --steps 20
-calc_rmu_l7_c3_s40 --target calculus --method rmu --layer 7 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
-calc_rmu_l7_c2_s40 --target calculus --method rmu --layer 7 --coeff 2 --alpha 100 --lr 5e-5 --steps 40
-calc_gakl_lr3e-5_s150 --target calculus --method gakl --lr 3e-5 --steps 150 --batch-tokens 3072
-book_rmu_l3_c20_a100 --target book --method rmu --layer 3 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
-book_rmu_l5_c20_a100 --target book --method rmu --layer 5 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+calc_rmu_l6_c3_s40 --target calculus --method rmu --layer 6 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
+calc_rmu_l6_c5_s20 --target calculus --method rmu --layer 6 --coeff 5 --alpha 100 --lr 5e-5 --steps 20
+calc_rmu_l10_c3_s40 --target calculus --method rmu --layer 10 --coeff 3 --alpha 100 --lr 5e-5 --steps 40
+calc_rmu_l10_c2_s40 --target calculus --method rmu --layer 10 --coeff 2 --alpha 100 --lr 5e-5 --steps 40
+calc_gakl_lr3e-5_s150 --target calculus --method gakl --lr 3e-5 --steps 150 --batch-tokens 768
+book_rmu_l4_c20_a100 --target book --method rmu --layer 4 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l7_c20_a100 --target book --method rmu --layer 7 --coeff 20 --alpha 100 --lr 5e-5 --steps 80

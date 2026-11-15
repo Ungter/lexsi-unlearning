@@ -1,6 +1,6 @@
 """Phase 3 driver: fit a Jacobian lens on one model and run the J-space readouts (PLAN 3.1-3.4).
 
-  python scripts/05_jspace.py --name base --model LiquidAI/LFM3-1.7B --corpus work/fineweb.jsonl \
+  python scripts/05_jspace.py --name base --model CohereLabs/tiny-aya-global --corpus work/fineweb.jsonl \
       --questions work/knowmem.jsonl --stages fit,agree,validate,hidden,inject [--fit-seconds 900]
 
 Stages (each after "fit" is independent; a failing stage is logged and the others still run):
@@ -9,7 +9,7 @@ Stages (each after "fit" is independent; a failing stage is logged and the other
   agree     per-layer top-1 agreement of lens vs model output on 20 FineWeb docs not used for fitting
   validate  PLAN 3.2 prompt sets -> validation.json + heatmaps
   hidden    knowmem forget readout (gold first-token rank per layer) -> hidden.json + heatmap
-  inject    country -> capital injection sweep -> inject.json
+  inject    country -> capital injection sweep -> inject.json (layer grid scaled by n_layers / 24 from the LFM3 grid)
 Outputs: OUT/NAME/*.json|png (small), LENS_DIR/NAME/lens.pt (large; uploaded separately).
 """
 from __future__ import annotations
@@ -147,9 +147,11 @@ def main() -> None:
 
     def inject():
         L = jm.n_layers
+        f = L / 24  # LFM3 grid (24 layers: singles 2,4,..,22; 6-layer bands every 3) scaled to depth; Tiny Aya f = 1.5
+        st, w, bs = max(1, round(2 * f)), max(2, round(6 * f)), max(1, round(3 * f))
         res = jinj.capital_swap(jm, lens, tok, CAPITAL_PAIRS,
-                                layers_single=list(range(2, L - 1, 2)),
-                                bands=[list(range(s, s + 6)) for s in range(2, L - 6, 3)],
+                                layers_single=list(range(st, L - 1, st)),
+                                bands=[list(range(s, s + w)) for s in range(st, L - w, bs)],
                                 alphas_add=[0, 0.25, 0.5, 1, 2, 4, 8], alphas_swap=[1, 2, 4, 8])
         dump(res, out / "inject.json")
         log.info("injection pairs with success: %s", res["pairs_with_success"])

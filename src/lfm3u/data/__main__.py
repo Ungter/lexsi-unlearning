@@ -2,6 +2,7 @@ import argparse
 import json
 from pathlib import Path
 
+from .. import arch
 from . import book, curate, math_gen
 from .pipeline import build_data, build_variants, check_leakage, freeze
 from .splits import verify_manifest
@@ -15,7 +16,7 @@ def main(argv=None):
     parser.add_argument("--train", type=int, default=1500)
     parser.add_argument("--dev", type=int, default=300)
     parser.add_argument("--test", type=int, default=500)
-    parser.add_argument("--tokenizer", default="LiquidAI/LFM3-1.7B")
+    parser.add_argument("--tokenizer", default=arch.MODEL_ID)
     parser.add_argument("--max-len", type=int, default=512)
     parser.add_argument("--no-hendrycks", action="store_true")
     parser.add_argument("--no-book", action="store_true")
@@ -36,7 +37,7 @@ def main(argv=None):
     if args.command == "book" or (args.command == "build" and not args.no_book):
         from transformers import AutoTokenizer
 
-        tok = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=True)
+        tok = AutoTokenizer.from_pretrained(args.tokenizer, trust_remote_code=arch.TRUST_REMOTE_CODE)
     if args.command == "math":
         result = math_gen.build_math(root, args.seed, sizes, include_hendrycks=not args.no_hendrycks)
     elif args.command == "book":

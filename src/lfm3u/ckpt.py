@@ -1,4 +1,8 @@
-"""Save a (possibly fp32-upcast or LoRA-merged) LFM3 model as a self-contained bf16 checkpoint."""
+"""Save a (possibly fp32-upcast or LoRA-merged) Tiny Aya model as a self-contained bf16 checkpoint.
+
+Cohere2 is native in transformers, so the source has no remote-code *.py files; the pattern is kept so LFM3-era sources
+still work. Embeddings are tied (lm_head = embed_tokens); save_pretrained stores the shared tensor once.
+"""
 from __future__ import annotations
 
 import json

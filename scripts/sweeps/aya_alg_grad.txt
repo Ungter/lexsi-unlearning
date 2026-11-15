@@ -1,0 +1,11 @@
+# Tiny Aya, ALGEBRA target (arch.MATH_TARGET): calc_grad.txt with --target algebra and alg_* run names. Gradient-ascent
+# family (full weights); 07_unlearn.py --batch-tokens default 1024 (LFM3 4096), GA-KL keeps LFM3's 3/4 ratio (-> 768).
+# Algebra solutions are much shorter than calculus ones, so a ~1k-token step packs several solutions.
+# Needs the selfgen file with ~500 correct algebra rows (aya_prep.txt: --target-per-level 300).
+alg_ga_lr1e-6_s100 --target algebra --method ga --lr 1e-6 --steps 100
+alg_ga_lr3e-6_s100 --target algebra --method ga --lr 3e-6 --steps 100
+alg_ga_lr3e-6_s250 --target algebra --method ga --lr 3e-6 --steps 250
+alg_graddiff_lr3e-6_s150 --target algebra --method graddiff --lr 3e-6 --steps 150
+alg_graddiff_lr1e-5_s150 --target algebra --method graddiff --lr 1e-5 --steps 150
+alg_gakl_lr3e-6_s150 --target algebra --method gakl --lr 3e-6 --steps 150 --batch-tokens 768
+alg_gakl_lr1e-5_s150 --target algebra --method gakl --lr 1e-5 --steps 150 --batch-tokens 768

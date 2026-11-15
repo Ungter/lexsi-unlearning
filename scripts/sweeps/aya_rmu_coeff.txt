@@ -1,0 +1,10 @@
+# Tiny Aya: RMU steering coefficient re-scaled. With the LFM3 value (c 20) algebra did not move at all (dev 0.60-0.61
+# vs target 0.63 at layers 6/10/18) and the book only partly (verbmem 0.53-0.61); Aya's residual norm differs from LFM3's,
+# so try 5x and 15x the coefficient at the same depths.
+alg_rmu_l6_c100_a100 --target algebra --method rmu --layer 6 --coeff 100 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c100_a100 --target algebra --method rmu --layer 10 --coeff 100 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c300_a100 --target algebra --method rmu --layer 10 --coeff 300 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l6_c100_a100 --target book --method rmu --layer 6 --coeff 100 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l10_c100_a100 --target book --method rmu --layer 10 --coeff 100 --alpha 100 --lr 5e-5 --steps 80
+book_rmu_l10_c300_a100 --target book --method rmu --layer 10 --coeff 300 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c100_a100_lr2e-4 --target algebra --method rmu --layer 10 --coeff 100 --alpha 100 --lr 2e-4 --steps 80

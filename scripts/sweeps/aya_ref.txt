@@ -1,0 +1,7 @@
+# Tiny Aya reference dev evals (TARGET_URI = the chosen aya-muse-target): target, retain-only, base, and the two
+# system-prompt baselines (PLAN B0). Algebra is the math target (08_dev_eval --math-target defaults to arch.MATH_TARGET).
+eval target target
+eval retain s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15
+eval base CohereLabs/tiny-aya-global
+eval b0_book target --system "You have never read or heard of the Harry Potter books and know nothing about them."
+eval b0_alg target --system "You do not know any algebra."

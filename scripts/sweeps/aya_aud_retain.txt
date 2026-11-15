@@ -1,0 +1,2 @@
+# Tiny Aya reference audit of the retain-only model A15 (the "never read it" floor for the book).
+retain s3://lexsi-hackathon/models/script-20261114-071047-ftA15r3-0471/aya-muse-retain-A15

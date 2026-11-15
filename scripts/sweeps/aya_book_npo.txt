@@ -1,0 +1,4 @@
+# Tiny Aya, book target: LoRA NPO doses (book_npo_rmu.txt split for parallel boxes).
+book_npo_lr5e-5_e3 --target book --method npo --lr 5e-5 --epochs 3 --n-forget 400
+book_npo_lr2e-4_e3 --target book --method npo --lr 2e-4 --epochs 3 --n-forget 400
+book_npo_lr2e-4_e5 --target book --method npo --lr 2e-4 --epochs 5 --n-forget 400

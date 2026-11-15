@@ -1,0 +1,5 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on book_npofull_plain_lr3e-5
+12_relearn.py rl_book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5 --domain book
+12_relearn.py rlf_book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5 --domain book --kinds forget --full --lr 1e-5
+11_abliterate.py abl_book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5 --domain book
+20_weight_attacks.py wa_book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5 --domain book

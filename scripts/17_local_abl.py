@@ -5,17 +5,21 @@ removes the skill itself (target calculus 0.71 -> 0.07), so it cannot show that 
 direction is projected out only where the unlearning method wrote (cf. Lucki et al. 2024 on RMU), with no gradient steps:
 
   directions  per (site, layer): normalised mean(forget) - mean(contrast), computed ON THE UNLEARNED MODEL from the same
-              train/dev prompts as attack 8 (calc: calculus vs other-math dev instructions; book: forget vs retain chunks)
-  sites       resid  decoder-layer output (residual stream)
-              ffn    MLP write after the sandwich norm (post_ffn_norm output, the vector added to the stream)
-              w2     MLP output before the sandwich norm: removing the direction there lets post_ffn_norm rescale what is
-                     left, so a jam that dominates the w2 output is removed without shrinking the rest of the write
-              op     operator (attention / conv) write after its sandwich norm (masked RMU also edits conv/o_proj columns)
+              train/dev prompts as attack 8 (calc: arch.MATH_TARGET (algebra on the Aya branch) vs arch.MATH_RETAIN dev
+              instructions; book: forget vs retain chunks)
+  sites       resid  decoder-layer output (residual stream after layer l)
+              mlp    MLP write = mlp.down_proj output (Tiny Aya: parallel blocks, no sandwich norm, so this is exactly
+                       the vector added to the stream)
+                attn   attention write = self_attn.o_proj output (masked RMU also edits o_proj columns)
+              Aya port: the LFM3 sites ffn / w2 (MLP write after / before post_ffn_norm) both map to mlp and op
+              (post_operator_norm, attention or conv) maps to attn; the old names are accepted on the command line.
+              Variant names and diagnostics use the new names (mlp@..., attn@...); the dW2_* fields refer to
+              mlp.down_proj. There are no conv layers.
   modes       proj   h <- h - (h.r) r
               clamp  h <- h - relu(h.r - b) r, b = mean(contrast).r  (keeps the component at its retain-level value)
 Variants: none; resid at the last edited layer only; each --sites entry with every --layers layer at once (proj, and
-clamp for --clamp-sites); calc: resid/w2 with SOLUTION-token directions (the target's own dev solutions, calculus vs
-retain math, teacher-forced through the attacked model, completion tokens only); a random-direction control at resid.
+clamp for --clamp-sites); calc: resid/w2 with SOLUTION-token directions (the target's own dev solutions, MATH_TARGET vs
+MATH_RETAIN, teacher-forced through the attacked model, completion tokens only); a random-direction control at resid.
 PRIMARY variant (declared before any result): resid at every edited layer, prompt directions. The rest are exploratory.
 Optional --ref (the reference target, never used by the attack itself): an "oracle" variant that ablates
 mean_attacked(forget) - mean_ref(forget) (if the oracle recovers and the attack does not, direction-finding failed; if
@@ -35,6 +39,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from lfm3u import arch  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
 
 
@@ -49,12 +54,15 @@ def load_helpers():
 
 H = load_helpers()
 mean, seeded, log, chat_ids, device = H.mean, H.seeded, H.log, H.chat_ids, H.device
-SITES = ("resid", "ffn", "w2", "op")
+SITES = ("resid", "mlp", "attn")
+SITE_ALIASES = {"w2": "mlp", "ffn": "mlp", "op": "attn"}  # LFM3 site names -> Tiny Aya
 
 
 def site_module(model, site: str, layer: int):
-    L = model.model.layers[layer]
-    return {"resid": L, "ffn": L.post_ffn_norm, "w2": L.feed_forward.w2, "op": L.post_operator_norm}[site]
+    site = SITE_ALIASES.get(site, site)
+    if site == "resid":
+        return arch.layers(model)[layer]
+    return arch.module(model, layer, {"mlp": arch.MLP_WRITER, "attn": arch.ATTN_WRITER}[site])
 
 
 def site_means(model, tok, prompts: list[list[int]], keys: list[tuple[str, int]], bs: int = 16, starts: list[int] | None = None) -> dict:
@@ -119,9 +127,9 @@ def main() -> None:
     ap.add_argument("--model", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--domain", choices=("book", "calc"), required=True)
-    ap.add_argument("--layers", required=True, help="edited layers, e.g. 2,3,4")
-    ap.add_argument("--sites", default="resid,ffn,w2")
-    ap.add_argument("--clamp-sites", default="w2", help="sites that also get a clamp variant")
+    ap.add_argument("--layers", required=True, help="edited layers, e.g. 3,4,5,6 (LFM3 2,3,4 scaled to 36 layers)")
+    ap.add_argument("--sites", default="resid,mlp", help="resid, mlp, attn (LFM3 names w2/ffn -> mlp, op -> attn)")
+    ap.add_argument("--clamp-sites", default="mlp", help="sites that also get a clamp variant")
     ap.add_argument("--ref", default=None, help="reference (target) model: oracle direction variant + diagnostics")
     ap.add_argument("--ref-label", default="oracle",
                     help="suffix of the reference-direction variants; 'base' = the PUBLIC base model as reference, which is a "
@@ -138,8 +146,8 @@ def main() -> None:
     ap.add_argument("--gen-bs", type=int, default=100)
     ap.add_argument("--prompt-seed", type=int, default=0, help="resample the direction prompts (0 = the attack-8 sample)")
     ap.add_argument("--calc-per-kind", type=int, default=0,
-                    help="calc eval: N test problems per kind from data/calculus (the 243-problem set of the cross-subskill "
-                         "runs) instead of the attack-8 100")
+                    help="calc eval: N test problems per arch.MATH_TARGET kind from data/<MATH_TARGET> (11_abliterate.calc_kind_rows, "
+                         "as 12_relearn.py --calc-per-kind) instead of the attack-8 100")
     a = ap.parse_args()
 
     import torch
@@ -148,8 +156,8 @@ def main() -> None:
     out = Path(a.out or f"results/local_abl/{a.name}")
     out.mkdir(parents=True, exist_ok=True)
     data, atk = Path(a.data), Path(a.attack_data)
-    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
-    load = lambda p: AutoModelForCausalLM.from_pretrained(p, trust_remote_code=True, dtype=torch.bfloat16).to(device()).eval()  # noqa: E731
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    load = lambda p: AutoModelForCausalLM.from_pretrained(p, trust_remote_code=arch.TRUST_REMOTE_CODE, dtype=torch.bfloat16).to(device()).eval()  # noqa: E731
     model = load(a.model)
     n = a.n_prompts
     sol = None  # (forget seqs, forget starts, contrast seqs, contrast starts): the TARGET's own dev solutions, teacher-forced
@@ -157,44 +165,40 @@ def main() -> None:
     if a.prompt_seed and a.domain != "calc":
         raise SystemExit("--prompt-seed is implemented for calc only")
     if a.domain == "calc":  # same prompt sources and seeds as attack 8
-        fr = [r for lvl in (1, 2, 3) for r in read_jsonl(data / f"calculus/level{lvl}/dev.jsonl")]
-        cr = [r for t in ("arithmetic", "algebra", "precalculus") for lvl in (1, 2, 3) for r in read_jsonl(data / f"{t}/level{lvl}/dev.jsonl")]
+        fr, cr = H.calc_prompt_rows(data)
         ps = [a.prompt_seed] if a.prompt_seed else []
         seeded("abl", "f", *ps).shuffle(fr)
         seeded("abl", "c", *ps).shuffle(cr)
         forget_p, contrast_p = [chat_ids(tok, r["instruction"]) for r in fr[:n]], [chat_ids(tok, r["instruction"]) for r in cr[:n]]
-        rows = read_jsonl(atk / "_inputs/math_calc_test.jsonl", allow_test=True)
+        rows, retain = H.calc_eval_rows(atk)
         seeded("abl", "test").shuffle(rows)
         rows = rows[:a.n_calc]
         if a.calc_per_kind:  # same selection as 12_relearn.py --calc-per-kind
-            rows = []
-            for k in ("diff", "integral", "defint"):
-                for lvl in (1, 2, 3):
-                    pool = [r for r in read_jsonl(data / f"calculus/level{lvl}/test.jsonl", allow_test=True) if r["kind"] == k]
-                    seeded("relearn-eval", k, lvl).shuffle(pool)
-                    rows += pool[:a.calc_per_kind // 3]
-        retain = read_jsonl(atk / "_inputs/math_retain_test.jsonl", allow_test=True)[:a.n_retain]
+            rows = H.calc_kind_rows(data, a.calc_per_kind)
+        retain = retain[:a.n_retain]
         evaluate = lambda: H.eval_calc(model, tok, rows, retain, a.max_new, a.gen_bs)  # noqa: E731
         key = "calc_acc"
         if Path(a.selfgen_dev).exists():
             sg = [json.loads(x) for x in Path(a.selfgen_dev).read_text(encoding="utf-8").splitlines() if x.strip()]
-            part = lambda src: [r for r in sg if r["source"] == src and r["mode"] == "direct"][:n]  # noqa: E731
-            f, c = part("calculus"), part("retain_math")
+            from lfm3u.unlearn.data import math_topic
+
+            part = lambda ts: [r for r in sg if math_topic(r) in ts and r.get("mode", "direct") == "direct"][:n]  # noqa: E731
+            f, c = part((arch.MATH_TARGET,)), part(arch.MATH_RETAIN)
             seq = lambda rs: [(r["prompt_ids"] + r["completion_ids"])[:1024] for r in rs]  # noqa: E731
             sol = (seq(f), [len(r["prompt_ids"]) for r in f], seq(c), [len(r["prompt_ids"]) for r in c])
     else:
-        bos = tok.bos_token_id
         fc = read_jsonl(data / "book/raw_forget_train.jsonl")
         rc = read_jsonl(data / "book/raw_retain1_train.jsonl")
         seeded("abl", "f").shuffle(fc)
         seeded("abl", "c").shuffle(rc)
-        forget_p, contrast_p = [[bos, *r["input_ids"][:128]] for r in fc[:n]], [[bos, *r["input_ids"][:128]] for r in rc[:n]]
+        forget_p, contrast_p = [H.raw_ids(tok, r["text"], 128) for r in fc[:n]], [H.raw_ids(tok, r["text"], 128) for r in rc[:n]]
         evaluate = lambda: H.eval_book(model, tok, data, atk)  # noqa: E731
         key = "verbmem_f1"
 
     layers = [int(x) for x in a.layers.split(",")]
-    sites = [s for s in a.sites.split(",") if s]
+    sites = list(dict.fromkeys(SITE_ALIASES.get(s, s) for s in a.sites.split(",") if s))
     assert all(s in SITES for s in sites), sites
+    a.clamp_sites = ",".join(SITE_ALIASES.get(s, s) for s in a.clamp_sites.split(","))
     keys = sorted({(s, l) for s in sites for l in layers} | {("resid", layers[-1])})
     t0 = time.time()
     unit = lambda v: (v / v.norm()).cpu()  # noqa: E731
@@ -230,18 +234,19 @@ def main() -> None:
             for k in keys:
                 o = sf[k] - rs[k]
                 diag[f"{k[0]}@{k[1]}"] |= {"sol_oracle_rel": round(float(o.norm() / sf[k].norm()), 3), "sol_oracle_cos": cos(o, sf[k] - sc[k])}
-        for l in layers:  # the actual weight change at w2: is it rank-1, and does the attack find its write direction?
-            W, W0 = model.model.layers[l].feed_forward.w2.weight.detach().float(), ref.model.layers[l].feed_forward.w2.weight.detach().float()
+        for l in layers:  # the actual weight change at mlp.down_proj: is it rank-1, and does the attack find its write direction?
+            W = arch.module(model, l, arch.MLP_WRITER).weight.detach().float()
+            W0 = arch.module(ref, l, arch.MLP_WRITER).weight.detach().float()
             dW = W - W0
             if float(dW.norm()) == 0:
-                diag.setdefault(f"w2@{l}", {})["dW2_rel"] = 0.0
+                diag.setdefault(f"mlp@{l}", {})["dW2_rel"] = 0.0
                 continue
             U, S, _ = torch.svd_lowrank(dW, q=6)
-            d = diag.setdefault(f"w2@{l}", {})
+            d = diag.setdefault(f"mlp@{l}", {})
             d |= {"dW2_rel": round(float(dW.norm() / W0.norm()), 4), "dW2_s1_s2": round(float(S[0] / S[1]), 2),
-                  "dW2_top_cos_p": abs(cos(U[:, 0], dirs[("p", "w2", l)][0])) if ("p", "w2", l) in dirs else None}
-            if ("s", "w2", l) in dirs:
-                d["dW2_top_cos_s"] = abs(cos(U[:, 0], dirs[("s", "w2", l)][0]))
+                  "dW2_top_cos_p": abs(cos(U[:, 0], dirs[("p", "mlp", l)][0])) if ("p", "mlp", l) in dirs else None}
+            if ("s", "mlp", l) in dirs:
+                d["dW2_top_cos_s"] = abs(cos(U[:, 0], dirs[("s", "mlp", l)][0]))
         del ref
         torch.cuda.empty_cache()
     log(f"{a.name} directions ({time.time() - t0:.0f}s): {json.dumps(diag)}")
@@ -257,12 +262,12 @@ def main() -> None:
         if s in a.clamp_sites.split(","):
             variants[f"{s}@{a.layers}:clamp"] = [("p", s, l, "clamp") for l in layers]
     if sol:
-        for s in ("resid", "w2"):
+        for s in ("resid", "mlp"):
             if s in sites:
                 variants[f"{s}@{a.layers}:sol"] = [("s", s, l, "proj") for l in layers]
     if a.ref:
         variants[f"resid@{a.layers}:{a.ref_label}"] = [("o", "resid", l, "proj") for l in layers]
-        for s in ("w2", "op"):
+        for s in ("mlp", "attn"):
             if s in sites:
                 variants[f"{s}@{a.layers}:{a.ref_label}"] = [("o", s, l, "proj") for l in layers]
     variants[f"resid@{a.layers}:random"] = [("r", "resid", l, "proj") for l in layers]

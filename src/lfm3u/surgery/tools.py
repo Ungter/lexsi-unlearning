@@ -10,7 +10,7 @@ Budgeted (1 + scored steps, at least 3 forward calls)
                          requested step; the adapter is discarded and the weights are verified bit-identical
 Budgeted (K * (1 + scored steps, at least 3) forward calls)
   relearn_probe_suite(k, steps)   P6: K attack configurations SAMPLED from the registered distribution (relearn.SUITE:
-                         all-weight fine-tuning, LoRA r16, LoRA of other ranks / restricted to attention or conv; lr, data
+                         all-weight fine-tuning, LoRA r16, LoRA of other ranks / restricted to attention or MLP; lr, data
                          size, schedule and seed vary), each on a fresh copy of the current weights; returns the curve of
                          every configuration plus the max and mean accuracy over configurations at each step
 Edits (through the guard; each is a delta file, re-applied when the run is loaded in another process)
@@ -18,6 +18,11 @@ Edits (through the guard; each is a delta file, re-applied when the run is loade
 save_patch writes the full bf16 checkpoint from the ORIGINAL weights plus the logged deltas and closes the run.
 
 Weights are edited in fp32 (original + sum of active deltas) and cast to bf16, so edits commute and revert is exact.
+
+Tiny Aya (CohereLabs/tiny-aya-global, Cohere2): 36 parallel blocks h = x + o_proj(attn(ln(x))) + down_proj(mlp(ln(x)))
+with one input_layernorm (LayerNorm, weight only); writers self_attn.o_proj [2048, 16 heads x 128] and mlp.down_proj
+[2048, 11008]; readers q/k/v_proj, mlp.gate_proj, mlp.up_proj. Tied embeddings (lm_head = embed_tokens) and the final
+model.norm are protected; logits are lm_head(h) * config.logit_scale.
 """
 from __future__ import annotations
 
@@ -27,14 +32,17 @@ import shutil
 import time
 from pathlib import Path
 
+from lfm3u import arch
 from lfm3u.surgery import edits as E
 from lfm3u.surgery import score
-from lfm3u.surgery.guard import Guard, GuardError, edit_cost
+from lfm3u.surgery.guard import PROTECTED, Guard, GuardError, edit_cost
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGET_MODEL = ROOT / "models/target"
 LENS = ROOT / "work/surgery/target_v3_lens.pt"
-SCORES = {"book": ROOT / "results/localize/book/scores.pt", "calculus": ROOT / "results/localize/calculus/scores.pt"}
+# 'calculus' is the math-target session key (LFM3 name); on the Aya branch it means arch.MATH_TARGET (algebra), whose
+# attribution scores come from `python -m lfm3u.unlearn.localize --target algebra --out results/localize/algebra`
+SCORES = {"book": ROOT / "results/localize/book/scores.pt", "calculus": ROOT / f"results/localize/{arch.MATH_TARGET}/scores.pt"}
 
 
 def log(msg: str) -> None:
@@ -51,8 +59,9 @@ def load_model(path: str | Path, device: str | None = None):
         # stalls the run and the desktop. Cap this process below the free dedicated memory so it fails loudly instead.
         free, total = torch.cuda.mem_get_info()
         torch.cuda.set_per_process_memory_fraction(max(0.3, min(free - (1 << 30), int(0.8 * total)) / total))
-    tok = AutoTokenizer.from_pretrained(str(path), trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(str(path), trust_remote_code=True, dtype=torch.bfloat16).to(device).eval()
+    tok = AutoTokenizer.from_pretrained(str(path), trust_remote_code=arch.TRUST_REMOTE_CODE)
+    model = AutoModelForCausalLM.from_pretrained(str(path), trust_remote_code=arch.TRUST_REMOTE_CODE,
+                                                 dtype=torch.bfloat16).to(device).eval()
     for p in model.parameters():
         p.requires_grad_(False)
     return model, tok
@@ -64,6 +73,26 @@ def sha256(path: Path) -> str:
         for chunk in iter(lambda: f.read(1 << 24), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def weight_files(model_dir: Path) -> list[Path]:
+    """The checkpoint's safetensors files: model.safetensors, or the shards listed in model.safetensors.index.json
+    (save_pretrained shards a 6.7 GB bf16 Tiny Aya checkpoint at the default 5 GB max_shard_size)."""
+    single = model_dir / "model.safetensors"
+    if single.is_file():
+        return [single]
+    index = model_dir / "model.safetensors.index.json"
+    if index.is_file():
+        names = sorted(set(json.loads(index.read_text(encoding="utf-8"))["weight_map"].values()))
+        return [model_dir / n for n in names]
+    raise FileNotFoundError(f"no model.safetensors or model.safetensors.index.json in {model_dir}")
+
+
+def sha256_files(paths: list[Path]) -> str:
+    """sha256 of one file, or of the sorted 'name:sha256' lines of several shards."""
+    if len(paths) == 1:
+        return sha256(paths[0])
+    return hashlib.sha256("\n".join(f"{p.name}:{sha256(p)}" for p in sorted(paths)).encode()).hexdigest()
 
 
 class Session:
@@ -120,7 +149,7 @@ class Session:
         for n, p in self.params.items():
             if pattern in n:
                 out.append({"name": n, "shape": list(p.shape), "numel": p.numel(),
-                            "editable": not any(k in n for k in ("embed_tokens", "lm_head", "embedding_norm"))})
+                            "editable": not any(k in n for k in PROTECTED)})
         return out
 
     def tensor_stats(self, name: str, svd: int = 0) -> dict:
@@ -140,10 +169,11 @@ class Session:
         w = w[rows] if rows is not None else w
         return (w[:, cols] if cols is not None else w).cpu()
 
-    def attribution(self, target: str | None = None, top_k: int = 50, kinds=("mlp", "head", "conv"), layers=None,
+    def attribution(self, target: str | None = None, top_k: int = 50, kinds=("mlp", "head"), layers=None,
                     lam: float = 1.0) -> dict:
         """Phase-5 attribution scores (results/localize/<target>/scores.pt). Returns the top units by forget-specific
-        score s_forget - lam * max(s_retain, 0) and the per-layer forget-specific mass."""
+        score s_forget - lam * max(s_retain, 0) and the per-layer forget-specific mass. Unit kinds: "mlp" (one of the
+        11008 mlp.down_proj input columns) and "head" (128 o_proj input columns; 16 heads per layer). No conv units."""
         from lfm3u.unlearn import localize
 
         target = target or self.target
@@ -176,7 +206,8 @@ class Session:
                     cov: bool = False, bs: int = 16) -> dict:
         """Internal activations at `sites`, reduced over the real tokens of all prompts.
           "resid"            residual stream after the embedding and after every layer -> [n_layers + 1, d]
-          "in:<module>"      input of a module (e.g. in:model.layers.5.feed_forward.w2 = MLP hidden units)
+          "in:<module>"      input of a module (e.g. in:model.layers.5.mlp.down_proj = the 11008 MLP hidden units;
+                             in:model.layers.5.self_attn.o_proj = the 16 x 128 head outputs)
           "out:<module>"     output of a module
         reduce: "mean" over tokens (all prompts pooled), or "last" = mean over prompts of the last token.
         cov=True also returns the uncentred second moment E[a a^T] per in:/out: site ("<site>#m2", fp32 on CPU)."""
@@ -272,8 +303,8 @@ class Session:
 
     def contrast_subspace(self, modules: list[str], forget: list[list[int]], retain: list[list[int]], *, k: int = 32,
                           shrink: float = 0.05, name: str | None = None, forget_val=None, retain_val=None) -> dict:
-        """Read-only. For each writer module (<= 6 per call), the directions of its INPUT space (MLP hidden units, head
-        outputs, conv channels) that carry much more energy on forget text than on retain text: generalized
+        """Read-only. For each writer module (<= 6 per call), the directions of its INPUT space (MLP hidden units of
+        mlp.down_proj, 11008-d; head outputs of self_attn.o_proj, 2048-d) that carry much more energy on forget text than on retain text: generalized
         eigenvectors of (M_f, C), M = uncentred second moment of the input activations, C = M_r + shrink * mean
         diag(M_r) * I. Returns the top-k eigenvalues (forget / retain energy ratio) per module; with a name, saves
         vecs/<name>.<layer>.pt = {"V": [d, k] (C-orthonormal), "CV": C @ V, "evals"}. Removing the top-k components
@@ -283,7 +314,7 @@ class Session:
         af = self.activations(forget, sites, cov=True)
         ar = self.activations(retain, sites, cov=True)
         out = {"n_forget_tokens": af["n_tokens"], "n_retain_tokens": ar["n_tokens"], "modules": {}}
-        # held-out energy ratios: the top eigenvalues of a 7,680-d problem fitted on ~1e5 tokens are inflated
+        # held-out energy ratios: the top eigenvalues of an 11,008-d problem fitted on ~1e5 tokens are inflated
         vf = self.activations(forget_val, sites, cov=True) if forget_val else None
         vr = self.activations(retain_val, sites, cov=True) if retain_val else None
         for m, s in zip(modules, sites):
@@ -426,7 +457,7 @@ class Session:
         with torch.no_grad():
             for i, p in enumerate(prompts):
                 h = score.hidden(self.model, torch.tensor([p], device=self.device), None)[0, -1]
-                lp = torch.log_softmax(self.model.lm_head(h).float(), -1)
+                lp = torch.log_softmax(score.logits(self.model, h), -1)
                 top = lp.topk(top_k)
                 res[i]["next"] = [[self.tok.decode([int(t)]), round(float(v), 3)] for v, t in zip(top.values, top.indices)]
         if targets is not None:
@@ -453,12 +484,13 @@ class Session:
                       gain_lr: float | None = None, note: str = "") -> dict:
         """Budgeted (relearn.cost(steps) = 1 + scored steps, at least 3 forward calls; charged before any model work).
         LoRA (r16, alpha 32, all projections, lr 2e-4, batch 4) on `n_items` train-split items of the run's target
-        (calculus: the target's own solutions, kind = mixed | diff | integral | defint; book: forget train chunks),
+        (calculus = arch.MATH_TARGET: the target's own solutions, kind = mixed | one of relearn.CALC_KINDS (algebra:
+        solve | quadratic | factor | algebra | simplify); book: forget train chunks),
         applied to the current edited weights; the dev set is scored with the adapter active at each step in `steps`
         (0 = no update). max_len truncates the training sequences (default: none; the selftest uses it to fit a small
-        GPU). gains=True also trains additive adapters on every RMSNorm gain (the stronger variant for edits that
-        touch norm gains, which a LoRA cannot adapt). The adapter is then discarded; the probe raises if any weight changed. Returns the brief
-        view {step: {acc, trunc, gib, noans, diff, integral, defint, train_loss}}; the full result is in
+        GPU). gains=True also trains additive adapters on every norm gain (input_layernorm; the stronger variant for
+        edits that touch norm gains, which a LoRA cannot adapt). The adapter is then discarded; the probe raises if any weight changed. Returns the brief
+        view {step: {acc, trunc, gib, noans, <accuracy per CALC_KINDS kind>, train_loss}}; the full result is in
         scores/<call>_probe.json and the generations in probe_<call>/step_<k>.jsonl."""
         from lfm3u.surgery import relearn
 
@@ -509,7 +541,7 @@ class Session:
         from lfm3u.surgery import relearn
 
         if self.target != "calculus":
-            raise GuardError("the probe suite is defined for calculus runs only")
+            raise GuardError(f"the probe suite is defined for math-target runs only (target 'calculus' = {arch.MATH_TARGET})")
         if _selftest is not None and self.run != "_selftest":
             raise GuardError("shrunken suite configurations are for the selftest run only")
         steps = sorted({int(s) for s in steps})
@@ -561,29 +593,30 @@ class Session:
 
     def ablate_direction(self, param: str, direction, *, axis: str = "out", sandwich: bool = True, mode: str = "pre",
                          mass: float | None = None, kappa: float = 3.0, rationale: str = "") -> dict:
-        """Remove a residual-stream direction r from a writer (axis="out": its post-norm write along r becomes zero)
-        or blind a reader to it (axis="in"). Writer modes: "pre" = projection orthogonal in pre-norm space (PLAN
-        correction 2), "stream" = projection orthogonal in stream space (the exact weight form of the activation
-        hook; `kappa` or `mass` set which output dims are used). sandwich=False gives the naive projection (comparison only)."""
+        """Remove a residual-stream direction r from a writer (axis="out": self_attn.o_proj or mlp.down_proj; its write
+        along r becomes exactly zero) or blind a reader to it (axis="in": q/k/v_proj, mlp.gate_proj, mlp.up_proj, which
+        all read the shared input_layernorm). Tiny Aya has no post-norms, so for writers W' = (I - r r^T) W and the
+        LFM3 modes "pre" / "stream" (and kappa / mass) give the same edit; they are kept for API compatibility. For
+        readers (sandwich=True) r is centred first (LayerNorm removes the mean) and the input_layernorm gain is folded
+        in. sandwich=False gives the naive projection (comparison only; also allows non-writer/reader tensors)."""
         self.guard.check_param(param)
         W = self.effective(param)
         r = self.vec(direction).to(self.device)
         if axis == "out":
-            gname = E.writer_norm(param)
-            if sandwich and gname is None:
-                raise GuardError(f"{param} is not a residual-stream writer; pass sandwich=False for a plain projection")
-            if sandwich and mode == "stream":
-                U, V = E.ablate_out_stream(W, r, self.effective(gname), mass, kappa)
-            else:
-                U, V = E.ablate_out(W, r, self.effective(gname) if sandwich else None)
+            gname = None
+            if sandwich and not E.is_writer(param):
+                raise GuardError(f"{param} is not a residual-stream writer ({' / '.join(arch.WRITERS)}); pass sandwich=False "
+                                 "for a plain projection")
+            U, V = E.ablate_out(W, r, None)
         elif axis == "in":
             gname = E.reader_norm(param)
             if sandwich and gname is None:
-                raise GuardError(f"{param} is not a residual-stream reader; pass sandwich=False for a plain projection")
+                raise GuardError(f"{param} is not a residual-stream reader ({' / '.join(arch.READERS)}); pass sandwich=False "
+                                 "for a plain projection")
             g = self.effective(gname) if sandwich else None
             if g is not None and float(g.abs().min()) < 1e-4:
                 raise GuardError(f"{gname} has near-zero gains; the reader-side edit would blow up")
-            U, V = E.ablate_in(W, r, g)
+            U, V = E.ablate_in(W, E.center(r) if sandwich else r, g)
         else:
             raise GuardError("axis must be 'out' or 'in'")
         args = {"axis": axis, "sandwich": sandwich, "mode": mode if axis == "out" else None, "kappa": kappa if mode == "stream" and mass is None else None, "mass": mass, "norm": gname if sandwich else None,
@@ -594,11 +627,14 @@ class Session:
 
     def scale_units(self, module: str, idx: list[int], factor: float, *, rationale: str = "") -> dict:
         """Multiply the write columns of units by `factor`. `module` is a writer as in the localizer
-        (model.layers.L.feed_forward.w2 | .self_attn.o_proj | .conv.out_proj); a head is 128 columns of o_proj."""
+        (model.layers.L.mlp.down_proj: unit = one of 11008 MLP neurons | model.layers.L.self_attn.o_proj: unit = one of
+        16 heads = 128 input columns)."""
         param = module if module.endswith(".weight") else f"{module}.weight"
         self.guard.check_param(param)
         W = self.effective(param)
-        width = self.model.config.head_dim if param.endswith("self_attn.o_proj.weight") else 1
+        cfg = self.model.config
+        hd = getattr(cfg, "head_dim", None) or cfg.hidden_size // cfg.num_attention_heads
+        width = hd if param.endswith(f"{arch.O_PROJ}.weight") else 1
         cols = self.torch.tensor(sorted({c for i in idx for c in range(i * width, (i + 1) * width)}), dtype=self.torch.long)
         delta = E.scale_cols(W, cols.to(self.device), factor)
         args = {"units": sorted(idx), "factor": factor, "n_cols": len(cols), "rel_change": float(delta.norm() / W.norm())}
@@ -619,7 +655,8 @@ class Session:
 
     def set_elements(self, param: str, idx, values, *, rationale: str = "", label: str = "") -> dict:
         """Sparse edit: set the flattened elements `idx` (unique) of a tensor to `values` (a scalar or one value per
-        index). Works on weight matrices and on the per-layer RMSNorm gain vectors (the final norm is protected).
+        index). Works on weight matrices and on the per-layer input_layernorm gain vectors (LayerNorm weight; one per
+        layer, shared by attention and MLP; the final model.norm is protected).
         Cost = number of elements. Stored as a delta against the current effective value, so it commutes with the
         other edits and reverts exactly."""
         torch = self.torch
@@ -674,41 +711,45 @@ class Session:
         name = name or self.run
         out = ROOT / "models/surgery" / name
         out.mkdir(parents=True, exist_ok=True)
-        src = self.model_dir / "model.safetensors"
-        tensors, changed = {}, {}
+        srcs = weight_files(self.model_dir)      # one file or several shards; each shard is rewritten under its own name
+        changed, keys = {}, []
         active = self.guard.active()
-        with safe_open(str(src), framework="pt") as f:
-            meta = f.metadata() or {"format": "pt"}
-            keys = list(f.keys())
-            for k in keys:
-                t = f.get_tensor(k)
-                recs = [e for e in active if e["param"] == k]
-                if recs:
-                    w = t.float()
-                    for e in recs:
-                        w = w + E.dense(self._spec(e), t.shape)
-                    new = w.to(t.dtype)
-                    mem = self.params[k].detach().cpu()
-                    # the in-memory copy was summed on the GPU: allow last-bit rounding differences, nothing more
-                    gap = float((new.float() - mem.float()).abs().max())
-                    if gap > 1e-3 * float(new.float().abs().max()):
-                        raise GuardError(f"{k}: checkpoint value differs from the in-memory model (max gap {gap:.3g})")
-                    changed[k] = {"elements": int((new != t).sum()), "numel": t.numel(),
-                                  "max_abs_delta": float((new.float() - t.float()).abs().max()),
-                                  "elements_differing_from_memory": int((new != mem).sum())}
-                    t = new
-                tensors[k] = t
+        for src in srcs:
+            tensors = {}
+            with safe_open(str(src), framework="pt") as f:
+                meta = f.metadata() or {"format": "pt"}
+                for k in f.keys():
+                    keys.append(k)
+                    t = f.get_tensor(k)
+                    recs = [e for e in active if e["param"] == k]
+                    if recs:
+                        w = t.float()
+                        for e in recs:
+                            w = w + E.dense(self._spec(e), t.shape)
+                        new = w.to(t.dtype)
+                        mem = self.params[k].detach().cpu()
+                        # the in-memory copy was summed on the GPU: allow last-bit rounding differences, nothing more
+                        gap = float((new.float() - mem.float()).abs().max())
+                        if gap > 1e-3 * float(new.float().abs().max()):
+                            raise GuardError(f"{k}: checkpoint value differs from the in-memory model (max gap {gap:.3g})")
+                        changed[k] = {"elements": int((new != t).sum()), "numel": t.numel(),
+                                      "max_abs_delta": float((new.float() - t.float()).abs().max()),
+                                      "elements_differing_from_memory": int((new != mem).sum())}
+                        t = new
+                    tensors[k] = t
+            save_file(tensors, str(out / src.name), metadata=meta)
+            del tensors
         missing = sorted({e["param"] for e in active} - set(keys))
         if missing:
             raise GuardError(f"edited tensors not in the checkpoint: {missing}")
-        save_file(tensors, str(out / "model.safetensors"), metadata=meta)
-        del tensors
+        names = {s.name for s in srcs}
         for f in self.model_dir.iterdir():
-            if f.is_file() and f.name != "model.safetensors":
+            if f.is_file() and f.name not in names:
                 shutil.copy2(f, out / f.name)
         g = self.guard
         patch = {"dir": str(out.relative_to(ROOT).as_posix()), "name": name, "note": note, "base_model": str(self.model_dir),
-                 "sha256_before": sha256(src), "sha256_after": sha256(out / "model.safetensors"),
+                 "sha256_before": sha256_files(srcs), "sha256_after": sha256_files([out / s.name for s in srcs]),
+                 "weight_files": [s.name for s in srcs],
                  "n_params": g.state["n_params"], "edit_budget": g.state["edit_budget"], "lowrank_param_count": g.used(),
                  "lowrank_frac": g.used() / g.state["n_params"],
                  "changed_elements": sum(c["elements"] for c in changed.values()),

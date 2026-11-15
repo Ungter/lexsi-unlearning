@@ -1,13 +1,15 @@
 """Attack 8 (PLAN 6.3): abliteration of the forgotten-concept direction, then re-test the direct forget metrics.
 
-LFM3 applies RMSNorm with a learned gain to every sublayer output before it is added to the residual stream
-("sandwich" norms), so orthogonalising weight matrices does not remove a direction from the stream. We therefore use
-activation ablation (Arditi et al.): after the embedding and after every decoder layer, project the direction r out of
-the residual stream, h <- h - (h . r) r, with forward hooks. Runs in HF (vLLM cannot hook).
+Tiny Aya Global (aya branch; LFM3 originally) uses parallel blocks, h = x + attn(ln(x)) + mlp(ln(x)), with no sandwich
+norms, so the decoder-layer output IS the residual stream after layer l. We keep the LFM3 protocol unchanged: activation
+ablation (Arditi et al.): after the embedding and after every decoder layer, project the direction r out of the residual
+stream, h <- h - (h . r) r, with forward hooks. Runs in HF (vLLM cannot hook). Default layers 6,12,18 = LFM3's 4,8,12
+scaled by 36/24 layers.
 
 Direction at layer l = normalised difference of mean layer-l residuals between forget and contrast text, using TRAIN/DEV
 data only (an attacker with access to the forget set):
-  calc   forget = calculus dev instructions (chat, thinking off)   contrast = arithmetic/algebra/precalculus dev instructions
+  calc   forget = arch.MATH_TARGET dev instructions (chat)         contrast = arch.MATH_RETAIN dev instructions
+         (Aya branch: 'calc' means MATH_TARGET = algebra; contrast = arithmetic/precalculus/calculus)
   book   forget = raw_forget_train chunk prefixes                  contrast = raw_retain1_train chunk prefixes
 Variants: none (control), then one per --layers entry. Metrics (test splits, greedy):
   calc   100 test problems (accuracy, truncated/gibberish rates) + 40 retain-math problems (collateral damage)
@@ -27,7 +29,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lfm3u import grade  # noqa: E402
+from lfm3u import arch, grade  # noqa: E402
 from lfm3u.audit import muse  # noqa: E402
 from lfm3u.audit.mathgrade import grade_item  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
@@ -56,7 +58,7 @@ def hf_generate(model, tok, prompts: list[list[int]], max_new: int, bs: int = 10
     import torch
 
     pad = tok.pad_token_id
-    eos = sorted({i for i in (tok.eos_token_id, tok.convert_tokens_to_ids("<|im_end|>")) if isinstance(i, int) and i >= 0})
+    eos = arch.eos_ids(tok)  # <|END_RESPONSE|>, <|END_OF_TURN_TOKEN|>, eos
     order = sorted(range(len(prompts)), key=lambda i: len(prompts[i]))
     outs: list[dict | None] = [None] * len(prompts)
     dev = next(model.parameters()).device
@@ -81,12 +83,18 @@ def hf_generate(model, tok, prompts: list[list[int]], max_new: int, bs: int = 10
 
 
 def chat_ids(tok, text: str) -> list[int]:
-    t = tok.apply_chat_template([{"role": "user", "content": text}], add_generation_prompt=True, tokenize=False, enable_thinking=False)
-    return tok(t, add_special_tokens=False)["input_ids"]
+    return arch.chat_ids(tok, text)
+
+
+def raw_ids(tok, text: str, n: int | None = None) -> list[int]:
+    """BOS + text tokens (first n text tokens if n). Re-tokenises from text: stored input_ids may be another tokenizer's."""
+    ids = arch.raw_ids(tok, text)
+    return ids if n is None else ids[:n + (tok.bos_token_id is not None)]
 
 
 def layer_means(model, tok, prompts: list[list[int]], bs: int = 32):
-    """Mean residual (fp32) over real tokens, for the embedding output and every layer: tensor [n_layers + 1, d]."""
+    """Mean residual (fp32) over real tokens, for the embedding output and every layer: tensor [n_layers + 1, d].
+    (HF: hidden_states[l + 1] = output of layer l, except the last entry, which is after the final norm.)"""
     import torch
 
     pad = tok.pad_token_id
@@ -120,8 +128,41 @@ def ablation_hooks(model, r):
         h2 = (h32 - (h32 @ r).unsqueeze(-1) * r).to(h.dtype)
         return (h2, *output[1:]) if isinstance(output, tuple) else h2
 
-    mods = [model.model.embed_tokens, *model.model.layers]
+    mods = [arch.embed(model), *arch.layers(model)]
     return [m.register_forward_hook(hook) for m in mods]
+
+
+def calc_prompt_rows(data: Path, split: str = "dev") -> tuple[list[dict], list[dict]]:
+    """(forget, contrast) math rows for 'calc' directions: arch.MATH_TARGET vs arch.MATH_RETAIN, unshuffled."""
+    fr = [r for lvl in (1, 2, 3) for r in read_jsonl(data / f"{arch.MATH_TARGET}/level{lvl}/{split}.jsonl")]
+    cr = [r for t in arch.MATH_RETAIN for lvl in (1, 2, 3) for r in read_jsonl(data / f"{t}/level{lvl}/{split}.jsonl")]
+    return fr, cr
+
+
+def calc_eval_rows(atk: Path) -> tuple[list[dict], list[dict]]:
+    """(_inputs/math_calc_test, _inputs/math_retain_test) of the attack data, checked to be the MATH_TARGET build
+    (calc rows all MATH_TARGET, retain rows none of it), unshuffled."""
+    rows = read_jsonl(atk / "_inputs/math_calc_test.jsonl", allow_test=True)
+    retain = read_jsonl(atk / "_inputs/math_retain_test.jsonl", allow_test=True)
+    bad = {r.get("topic") for r in rows} - {arch.MATH_TARGET} | {r.get("topic") for r in retain} & {arch.MATH_TARGET}
+    if bad:
+        raise SystemExit(f"{atk}/_inputs is not the {arch.MATH_TARGET} build (topics {sorted(map(str, bad))}); "
+                         "use s3://<bucket>/aya/attack_data")
+    return rows, retain
+
+
+def calc_kind_rows(data: Path, per_kind: int) -> list[dict]:
+    """per_kind TEST problems for every arch.MATH_TARGET kind, spread over the levels that have the kind (the LFM3
+    calculus version took per_kind/3 per level of diff/integral/defint)."""
+    test = {lvl: read_jsonl(data / f"{arch.MATH_TARGET}/level{lvl}/test.jsonl", allow_test=True) for lvl in (1, 2, 3)}
+    rows = []
+    for k in sorted({r["kind"] for v in test.values() for r in v}):
+        lvls = [lvl for lvl in (1, 2, 3) if any(r["kind"] == k for r in test[lvl])]
+        for lvl in lvls:
+            pool = [r for r in test[lvl] if r["kind"] == k]
+            seeded("relearn-eval", k, lvl).shuffle(pool)
+            rows += pool[:per_kind // len(lvls)]
+    return rows
 
 
 def eval_calc(model, tok, rows, retain, max_new, bs: int = 100):
@@ -144,15 +185,14 @@ def eval_calc(model, tok, rows, retain, max_new, bs: int = 100):
 
 def eval_book(model, tok, data: Path, atk: Path):
     verb = read_jsonl(data / "book/verbmem_forget_test.jsonl", allow_test=True)
-    bos = tok.bos_token_id
-    outs = hf_generate(model, tok, [[bos, *tok(r["prompt"], add_special_tokens=False)["input_ids"]] for r in verb], 128)
+    outs = hf_generate(model, tok, [arch.raw_ids(tok, r["prompt"]) for r in verb], 128)
     f1 = [grade.rouge_l(o["text"], r["target"])["rougeL_f1"] for r, o in zip(verb, outs)]
     res = {"verbmem_f1": mean(f1), "verbmem_gibberish": mean(grade.is_gibberish(o["text"]) for o in outs),
            "verbmem_f1_items": [round(x, 3) for x in f1]}
     for split, key in (("forget", "forget"), ("retain", "retain")):
         qa = read_jsonl(data / f"book/knowmem_{split}_qa_test.jsonl", allow_test=True)
         prefix = muse.icl_prefix(read_jsonl(data / f"book/knowmem_{split}_qa_icl_dev.jsonl", allow_test=True))
-        outs = hf_generate(model, tok, [[bos, *tok(prefix + f"Question: {r['question']}\nAnswer:", add_special_tokens=False)["input_ids"]] for r in qa], 32)
+        outs = hf_generate(model, tok, [arch.raw_ids(tok, prefix + f"Question: {r['question']}\nAnswer:") for r in qa], 32)
         texts = [o["text"].split("\n")[0] for o in outs]
         res[f"knowmem_{key}_fact"] = mean(grade.fact_present(t, r["answer"]) for t, r in zip(texts, qa))
         res[f"knowmem_{key}_gibberish"] = mean(grade.is_gibberish(o["text"]) for o in outs)
@@ -164,7 +204,7 @@ def main() -> None:
     ap.add_argument("--model", required=True)
     ap.add_argument("--name", required=True)
     ap.add_argument("--domain", choices=("book", "calc"), required=True)
-    ap.add_argument("--layers", default="4,8,12")
+    ap.add_argument("--layers", default="6,12,18", help="LFM3 default 4,8,12 scaled to 36 layers")
     ap.add_argument("--out", default=None)
     ap.add_argument("--data", default="data")
     ap.add_argument("--attack-data", default="attack_data")
@@ -180,28 +220,26 @@ def main() -> None:
     out = Path(a.out or f"results/abl/{a.name}")
     out.mkdir(parents=True, exist_ok=True)
     data, atk = Path(a.data), Path(a.attack_data)
-    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=True)
-    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=True, dtype=torch.bfloat16).to(device()).eval()
+    tok = AutoTokenizer.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    model = AutoModelForCausalLM.from_pretrained(a.model, trust_remote_code=arch.TRUST_REMOTE_CODE, dtype=torch.bfloat16).to(device()).eval()
     n = a.limit or a.n_prompts
 
     if a.domain == "calc":
-        fr = [r for lvl in (1, 2, 3) for r in read_jsonl(data / f"calculus/level{lvl}/dev.jsonl")]
-        cr = [r for t in ("arithmetic", "algebra", "precalculus") for lvl in (1, 2, 3) for r in read_jsonl(data / f"{t}/level{lvl}/dev.jsonl")]
+        fr, cr = calc_prompt_rows(data)
         seeded("abl", "f").shuffle(fr)
         seeded("abl", "c").shuffle(cr)
         forget_p, contrast_p = [chat_ids(tok, r["instruction"]) for r in fr[:n]], [chat_ids(tok, r["instruction"]) for r in cr[:n]]
-        rows = read_jsonl(atk / "_inputs/math_calc_test.jsonl", allow_test=True)
+        rows, retain = calc_eval_rows(atk)
         seeded("abl", "test").shuffle(rows)
         rows = rows[:a.limit or a.n_calc]
-        retain = read_jsonl(atk / "_inputs/math_retain_test.jsonl", allow_test=True)[:a.limit or 40]
+        retain = retain[:a.limit or 40]
         evaluate = lambda: eval_calc(model, tok, rows, retain, a.max_new)  # noqa: E731
     else:
-        bos = tok.bos_token_id
         fc = read_jsonl(data / "book/raw_forget_train.jsonl")
         rc = read_jsonl(data / "book/raw_retain1_train.jsonl")
         seeded("abl", "f").shuffle(fc)
         seeded("abl", "c").shuffle(rc)
-        forget_p, contrast_p = [[bos, *r["input_ids"][:128]] for r in fc[:n]], [[bos, *r["input_ids"][:128]] for r in rc[:n]]
+        forget_p, contrast_p = [raw_ids(tok, r["text"], 128) for r in fc[:n]], [raw_ids(tok, r["text"], 128) for r in rc[:n]]
         evaluate = lambda: eval_book(model, tok, data, atk)  # noqa: E731
 
     mf, mc = layer_means(model, tok, forget_p), layer_means(model, tok, contrast_p)

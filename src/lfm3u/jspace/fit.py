@@ -1,11 +1,15 @@
-"""Fit Jacobian lenses on LFM3 checkpoints with anthropics/jacobian-lens (import name ``jlens``).
+"""Fit Jacobian lenses on Tiny Aya checkpoints (CohereLabs/tiny-aya-global, Cohere2ForCausalLM) with
+anthropics/jacobian-lens (import name ``jlens``).
 
 The lens reads a residual ``h_l`` (output of decoder block ``l``) as ``unembed(J_l @ h_l)`` with
 ``J_l = E[d h_final / d h_l]`` averaged over a web-text corpus; ``h_final`` is the output of the last block
-(before ``model.model.embedding_norm``). Fitted layers are 0..n_layers-2; the last block is the model output.
+(before ``model.model.norm``). Fitted layers are 0..n_layers-2 (0..34 for 36 layers); the last block is the model
+output.
 
-LFM3 layout: decoder ``model.model``, blocks ``.layers``, final norm ``.embedding_norm`` (not ``.norm``, so jlens
-auto-detection fails and the layout must be passed), embedding ``.embed_tokens``, tied ``lm_head``.
+Tiny Aya layout: decoder ``model.model``, blocks ``.layers`` (36 parallel attention+MLP blocks), final norm ``.norm``
+(a LayerNorm without bias), embedding ``.embed_tokens``, ``lm_head`` tied to it. The layout is passed explicitly
+anyway. The model multiplies logits by ``config.logit_scale``; jlens' ``unembed`` does not, which leaves ranks and
+argmax unchanged (apply ``logit_scale(jm)`` before any softmax).
 
 Cost per prompt: one forward and ``ceil(d_model / dim_batch)`` backward passes (input grads only). ``fit_lens``
 runs ``jlens.fit`` on chunks and combines them with ``JacobianLens.merge`` so a fit can stop on a time budget.
@@ -32,35 +36,56 @@ FIT_DOC_RANGE = (500, 1500)
 SEQ_LEN = 128
 
 
-def lfm3_layout():
-    """jlens Layout for Lfm3ForCausalLM (PLAN's ``Layout("model", norm="embedding_norm")`` is equivalent)."""
+def aya_layout():
+    """jlens Layout for Cohere2ForCausalLM (Tiny Aya): ``Layout("model", norm="norm")`` with the defaults spelled out."""
     from jlens import Layout
 
-    return Layout("model", layers="layers", norm="embedding_norm", embed="embed_tokens", lm_head="lm_head")
+    return Layout("model", layers="layers", norm="norm", embed="embed_tokens", lm_head="lm_head")
 
 
-def load_model(ref: str, device: str | None = None, dtype: torch.dtype = torch.bfloat16):
-    """Load an LFM3 checkpoint (HF id or local dir) and its tokenizer."""
+#: Backwards-compatible name (callers and scripts import lfm3_layout); it now returns the Tiny Aya layout.
+lfm3_layout = aya_layout
+
+
+def load_model(ref: str | None = None, device: str | None = None, dtype: torch.dtype = torch.bfloat16):
+    """Load a Tiny Aya checkpoint (HF id or local dir; default arch.MODEL_ID) and its tokenizer."""
     from transformers import AutoModelForCausalLM, AutoTokenizer
 
+    from lfm3u import arch
+
+    ref = ref or arch.MODEL_ID
     device = device or ("cuda" if torch.cuda.is_available() else "cpu")
-    tok = AutoTokenizer.from_pretrained(ref, trust_remote_code=True)
-    hf = AutoModelForCausalLM.from_pretrained(ref, trust_remote_code=True, dtype=dtype).to(device).eval()
+    tok = AutoTokenizer.from_pretrained(ref, trust_remote_code=arch.TRUST_REMOTE_CODE)
+    hf = AutoModelForCausalLM.from_pretrained(ref, trust_remote_code=arch.TRUST_REMOTE_CODE, dtype=dtype).to(device).eval()
     return hf, tok
 
 
 def wrap(hf_model, tokenizer, *, compile: bool = False):
-    """Wrap a loaded HF LFM3 model as a jlens LensModel. Mutates the model (requires_grad off) and sets
-    ``tokenizer.add_bos_token = True`` (LFM3 ships with False; raw-text prompts need the BOS sink)."""
+    """Wrap a loaded HF Tiny Aya model as a jlens LensModel. Mutates the model (requires_grad off); ``force_bos``
+    makes sure raw-text prompts start with <BOS_TOKEN> (the attention sink)."""
     import jlens
 
-    return jlens.from_hf(hf_model, tokenizer, layout=lfm3_layout(), compile=compile, force_bos=True)
+    return jlens.from_hf(hf_model, tokenizer, layout=aya_layout(), compile=compile, force_bos=True)
+
+
+def logit_scale(model) -> float:
+    """``config.logit_scale`` of a HF model or a jlens LensModel wrapping one (1.0 if absent)."""
+    for m in (model, getattr(model, "model", None), getattr(model, "hf_model", None), getattr(model, "_model", None)):
+        cfg = getattr(m, "config", None)
+        s = getattr(cfg, "logit_scale", None) if cfg is not None else None
+        if s is not None:
+            return float(s)
+    return 1.0
 
 
 def fineweb_prompts(path: str | Path, tokenizer, *, start: int = FIT_DOC_RANGE[0], end: int = FIT_DOC_RANGE[1],
                     seq_len: int = SEQ_LEN) -> list[tuple[int, str]]:
     """(doc index, text) for FineWeb docs in [start, end) that fill a ``seq_len``-token sequence (BOS included).
-    jlens truncates each prompt to ``seq_len`` tokens; the text is pre-cut to bound tokenization cost."""
+    jlens truncates each prompt to ``seq_len`` tokens; the text is pre-cut to bound tokenization cost.
+    ``seq_len`` is capped at the 8192-token context."""
+    from lfm3u import arch
+
+    seq_len = min(seq_len, arch.MAX_CONTEXT)
     if start < FIT_DOC_RANGE[0]:
         raise ValueError(f"docs below {FIT_DOC_RANGE[0]} are the held-out perplexity set")
     out = []
@@ -78,11 +103,12 @@ def fineweb_prompts(path: str | Path, tokenizer, *, start: int = FIT_DOC_RANGE[0
 
 def auto_dim_batch(device: torch.device | str | None = None) -> int:
     """Output dims per backward pass. The forward graph of ``dim_batch`` x 128 tokens is retained (~13 GB at 64
-    for LFM3-1.7B in bf16); larger batches only improve GPU utilisation, total FLOPs are fixed."""
+    for LFM3-1.7B; Tiny Aya has 36 layers and an 11008-wide MLP, so expect roughly 2x, plus 6.7 GB of bf16 weights);
+    larger batches only improve GPU utilisation, total FLOPs are fixed. fit_lens halves it on OOM."""
     if not torch.cuda.is_available():
         return 8
     gb = torch.cuda.get_device_properties(device or 0).total_memory / 2**30
-    return 64 if gb >= 40 else 32
+    return 64 if gb >= 70 else 32 if gb >= 40 else 16
 
 
 def fit_lens(jm, prompts: list[str], *, chunk: int = 25, min_prompts: int = 100, max_prompts: int = 1000,

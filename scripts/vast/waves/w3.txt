@@ -1,0 +1,17 @@
+# Wave 3 (Nov 14 12:10 EST): audits, attacks, UNDO and seeds on the sweep winners and the book surgery patches
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w3_aud_alg_a.txt --tag w3_aud_alg_a --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w3_aud_alg_b.txt --tag w3_aud_alg_b --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w3_aud_book_a.txt --tag w3_aud_book_a --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w3_aud_book_b.txt --tag w3_aud_book_b --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w3_aud_book_c.txt --tag w3_aud_book_c --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_alg_sam.txt --tag w3_atk_alg_sam --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_alg_rmu.txt --tag w3_atk_alg_rmu --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_alg_full.txt --tag w3_atk_alg_full --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_book_full.txt --tag w3_atk_book_full --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_book_sam_ga.txt --tag w3_atk_book_sam_ga --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_book_surg.txt --tag w3_atk_book_surg --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w3_atk_book_mask.txt --tag w3_atk_book_mask --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/unlearn_relearn.sh --script-args scripts/sweeps/aya_w3_undo.txt --tag w3_undo --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15
+--job script --job-script scripts/vast/jobs/unlearn_relearn.sh --script-args scripts/sweeps/aya_w3_undo2.txt --tag w3_undo2 --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_w3_seeds_book.txt --tag w3_seeds_book --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15
+--job script --job-script scripts/vast/jobs/unlearn_sweep.sh --script-args scripts/sweeps/aya_w3_seeds_alg.txt --tag w3_seeds_alg --min-gpu-ram 90 --max-dph 2.4 --extra-env TARGET_URI=s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15

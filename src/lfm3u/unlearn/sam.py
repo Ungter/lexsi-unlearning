@@ -9,6 +9,9 @@ Per step: (1) grad of the NPO forget loss at theta; (2) theta += delta; (3) forg
 The NPO and KL terms are SafeTune's own (npo_forget_loss, get_batch_loss, _retain_kl), so rho = 0 is SafeTune's
 npo_unlearn(variant="npo_KL") with one extra forward/backward. The reference logits on the forget batch are computed once
 per step and reused for both forget passes.
+
+Tiny Aya (262k vocabulary): every forward here materialises full fp32 logits (1 MB per token) for model and reference,
+as SafeTune's loss functions need them; keep the batches small (scripts/07_unlearn.py --batch-tokens default 1024).
 """
 from __future__ import annotations
 

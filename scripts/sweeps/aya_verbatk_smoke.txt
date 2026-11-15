@@ -1,0 +1,2 @@
+# smoke: 3 passages on the target
+sm_verbatk_target s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15 --limit 3

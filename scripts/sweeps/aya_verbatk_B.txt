@@ -1,0 +1,5 @@
+# verbatim attacks box B
+book_ga_lr1e-6_s100 s3://lexsi-hackathon/models/script-20261114-084106-book_grad-be23/book_ga_lr1e-6_s100
+mnpo_book_lr1e-3 s3://lexsi-hackathon/models/script-20261114-083742-book_mask-ccdb/mnpo_book_lr1e-3
+book_rmu_l18_c20_a100 s3://lexsi-hackathon/models/script-20261114-085118-book_rmu-a488/book_rmu_l18_c20_a100
+aya_l2_book_b50 s3://lexsi-hackathon/models/surgery/aya_l2_book_b50

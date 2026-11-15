@@ -1,3 +1,4 @@
+# Tiny Aya port (aya branch): no layer indices here; LoRA targets = arch.LORA_TARGETS (q/k/v/o, gate/up/down_proj).
 # Round 2: calculus NPO (LoRA) at higher learning rates.
 calc_npo_lr5e-4_e3 --target calculus --method npo --lr 5e-4 --epochs 3 --n-forget 400
 calc_npo_lr1e-3_e3 --target calculus --method npo --lr 1e-3 --epochs 3 --n-forget 400

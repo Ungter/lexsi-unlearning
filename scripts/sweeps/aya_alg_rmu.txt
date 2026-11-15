@@ -1,0 +1,6 @@
+# Tiny Aya, algebra target: RMU depth/strength grid (aya_alg_npo_rmu.txt split; LFM3 l4/l7/l12 -> Aya l6/l10/l18).
+alg_rmu_l6_c20_a100 --target algebra --method rmu --layer 6 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c20_a100 --target algebra --method rmu --layer 10 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l18_c20_a100 --target algebra --method rmu --layer 18 --coeff 20 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c6.5_a100 --target algebra --method rmu --layer 10 --coeff 6.5 --alpha 100 --lr 5e-5 --steps 80
+alg_rmu_l10_c20_a1200 --target algebra --method rmu --layer 10 --coeff 20 --alpha 1200 --lr 5e-5 --steps 80

@@ -1,0 +1,2 @@
+# Tiny Aya wave 5: test audit of the UNDO student distilled from book all-weight NPO
+undo_book_npofull s3://lexsi-hackathon/models/script-20261114-120649-w3_undo-aea2/undo_book_npofull --domains book,calc

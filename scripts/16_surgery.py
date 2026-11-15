@@ -18,6 +18,18 @@
                           including that the relearning probe leaves every weight bit-identical)
 
 Step files are plain Python. In scope: S, torch, score (lfm3u.surgery.score), show(obj) (prints JSON), ROOT.
+
+Model facts for the agent (Tiny Aya Global, CohereLabs/tiny-aya-global, Cohere2ForCausalLM; see src/lfm3u/arch.py):
+  36 decoder layers model.layers.0..35, every one attention (3 sliding-window 4096 : 1 full/NoPE), d_model 2048,
+  16 query / 4 KV heads of 128, SwiGLU MLP 11008, vocab 262,144, 3.35B parameters, 8K context, no thinking mode.
+  PARALLEL blocks: h = x + self_attn(ln(x)) + mlp(ln(x)) with ONE input_layernorm (LayerNorm, weight only, no bias);
+  there is no mid-block residual, no post-norm and no ffn_norm. Residual writers: self_attn.o_proj [2048, 2048]
+  (input = 16 heads x 128) and mlp.down_proj [2048, 11008] (input = MLP neurons); both write the same residual.
+  Readers: self_attn.{q,k,v}_proj and mlp.{gate,up}_proj, all reading input_layernorm(x). The final norm is
+  model.norm; embeddings are tied (lm_head = model.embed_tokens); both are protected. Logits = lm_head(h) *
+  config.logit_scale. LFM3 names map as w1 -> mlp.gate_proj, w3 -> mlp.up_proj, w2 -> mlp.down_proj,
+  self_attn.out_proj -> self_attn.o_proj, embedding_norm -> model.norm; conv.* has no counterpart. LFM3 layer indices
+  (24 layers) scale by 1.5.
 """
 from __future__ import annotations
 
@@ -115,14 +127,15 @@ def cmd_probe(a) -> None:
 
 def cmd_suite(a) -> None:
     from lfm3u.surgery import relearn
-    from lfm3u.surgery.tools import load_model, sha256
+    from lfm3u.surgery.tools import load_model, sha256_files, weight_files
 
     out = Path(a.out)
     steps = [int(s) for s in a.steps.split(",")]
     if a.configs:
         configs, draw = json.loads(Path(a.configs).read_text(encoding="utf-8"))["configs"], {"replay_of_file": str(a.configs)}
     else:
-        label = f"audit|{a.draw}" if a.draw else "audit|sha256|" + sha256(Path(a.draw_sha or a.dir) / "model.safetensors")
+        # sha256 of model.safetensors, or of the shard list for a sharded checkpoint (tools.sha256_files)
+        label = f"audit|{a.draw}" if a.draw else "audit|sha256|" + sha256_files(weight_files(Path(a.draw_sha or a.dir)))
         seed = relearn.seed_from(label, a.k)
         configs, draw = relearn.sample_configs(seed, a.k), {"label": label, "seed": seed}
     if a.dry:
@@ -148,36 +161,44 @@ def selftest(with_model: bool) -> None:
 
     torch.manual_seed(0)
     dd = torch.float64
-    # 1. writer side: under g * y / rms(y), projecting off u = unit(g * r) zeroes the write along r; projecting off r does not
+    # 1. writer side (Tiny Aya: no post-norm, the write W a goes straight into the stream): (I - r r^T) W zeroes the
+    #    write along r; the LFM3 "stream" variant with g=None is the same edit; writer_norm is None for both writers
     rows, cols = 64, 200
     W = torch.randn(rows, cols, dtype=dd)
-    g = torch.rand(rows, dtype=dd) * 0.1 + 1e-5
     r = E.unit(torch.randn(rows, dtype=dd))
     A = torch.randn(500, cols, dtype=dd)
 
     def write_along_r(Wx):
-        y = A @ Wx.T
-        z = g * y / y.pow(2).mean(-1, keepdim=True).add(1e-5).sqrt()
+        z = A @ Wx.T
         return float(((z @ r).abs() / z.norm(dim=-1)).max())
 
-    U, V = E.ablate_out(W, r, g)
-    Un, Vn = E.ablate_out(W, r, None)
-    good, naive, before = write_along_r(W + U @ V.T), write_along_r(W + Un @ Vn.T), write_along_r(W)
+    U, V = E.ablate_out(W, r, None)
+    Us, Vs = E.ablate_out_stream(W, r, None)
+    good, before = write_along_r(W + U @ V.T), write_along_r(W)
     assert good < 1e-12, good
-    assert naive > 1e-3, naive
-    print(f"[selftest] writer: |z.r|/|z| max  unedited {before:.3g}  naive (I - rr^T)W {naive:.3g}  sandwich (I - uu^T)W {good:.3g}")
-    # 2. reader side: W'(g_in * x) = W(g_in * (x - r r^T x))
+    assert torch.allclose(U @ V.T, Us @ Vs.T)
+    assert E.is_writer("model.layers.3.mlp.down_proj.weight") and E.is_writer("model.layers.3.self_attn.o_proj.weight")
+    assert E.writer_norm("model.layers.3.mlp.down_proj.weight") is None
+    assert E.reader_norm("model.layers.3.mlp.up_proj.weight") == "model.layers.3.input_layernorm.weight"
+    print(f"[selftest] writer: |z.r|/|z| max  unedited {before:.3g}  (I - rr^T)W {good:.3g}")
+    # 2. reader side through a LayerNorm ln(x) = g_in * (x - mean) / std: with r centred, W' ln(x) = W g_in * P(x - mean) / std,
+    #    P = I - r r^T, so the reader is blind to adding any multiple of r to x (std aside, which we hold fixed here)
     Wr = torch.randn(300, rows, dtype=dd)
     gi = torch.rand(rows, dtype=dd) * 0.3 + 0.02
     X = torch.randn(500, rows, dtype=dd)
-    U, V = E.ablate_in(Wr, r, gi)
-    lhs = (gi * X) @ (Wr + U @ V.T).T
-    rhs = (gi * (X - (X @ r)[:, None] * r)) @ Wr.T
+    Xc = X - X.mean(-1, keepdim=True)
+    rc = E.unit(E.center(r))
+    U, V = E.ablate_in(Wr, rc, gi)
+    lhs = (gi * Xc) @ (Wr + U @ V.T).T
+    rhs = (gi * (Xc - (Xc @ rc)[:, None] * rc)) @ Wr.T
     err = float((lhs - rhs).abs().max() / rhs.abs().max())
-    assert err < 1e-10, err
-    print(f"[selftest] reader: max relative error {err:.3g}")
+    X2 = X + 3.0 * r                                         # uncentred r: its mean part is removed by the LayerNorm anyway
+    lhs2 = (gi * (X2 - X2.mean(-1, keepdim=True))) @ (Wr + U @ V.T).T
+    blind = float((lhs2 - lhs).abs().max() / lhs.abs().max())
+    assert err < 1e-10 and blind < 1e-10, (err, blind)
+    print(f"[selftest] reader (LayerNorm): max relative error {err:.3g}; change when r is added to x {blind:.3g}")
     # 3. guard
-    assert edit_cost("lowrank", (2048, 7680), rank=1) == 9728 and edit_cost("cols", (2048, 7680), n_cols=3) == 6144
+    assert edit_cost("lowrank", (2048, 11008), rank=1) == 13056 and edit_cost("cols", (2048, 11008), n_cols=3) == 6144
     tmp = Path(tempfile.mkdtemp(prefix="guardtest_", dir=str(ROOT / "results")))
     try:
         try:
@@ -186,20 +207,20 @@ def selftest(with_model: bool) -> None:
         except GuardError:
             pass
         gd = Guard(tmp / "r", n_params=1_000_000, call_budget=10, target="book")
-        for name in ("model.embed_tokens.weight", "lm_head.weight", "model.embedding_norm.weight"):
+        for name in ("model.embed_tokens.weight", "lm_head.weight", "model.norm.weight", "model.embedding_norm.weight"):
             try:
                 gd.admit(param=name, shape=(4, 4), kind="lowrank", cost=8, op="rank_one", args={}, rationale="should be rejected")
                 raise AssertionError(name)
             except GuardError:
                 pass
-        gd.admit(param="model.layers.0.feed_forward.w2.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="within budget")
+        gd.admit(param="model.layers.0.mlp.down_proj.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="within budget")
         try:
-            gd.admit(param="model.layers.1.feed_forward.w2.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="over budget")
+            gd.admit(param="model.layers.1.mlp.down_proj.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="over budget")
             raise AssertionError("edit budget not enforced")
         except BudgetExceeded:
             pass
         gd.revert("e001", "test")
-        gd.admit(param="model.layers.1.feed_forward.w2.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="fits after revert")
+        gd.admit(param="model.layers.1.mlp.down_proj.weight", shape=(10, 50), kind="lowrank", cost=600, op="rank_one", args={}, rationale="fits after revert")
         try:
             gd.charge("run_forward", 257)
             raise AssertionError("prompt cap")
@@ -237,7 +258,7 @@ def selftest(with_model: bool) -> None:
             pass
         gd2.close({"dir": "x"})
         try:
-            Guard(tmp / "r").admit(param="model.layers.2.feed_forward.w2.weight", shape=(10, 50), kind="lowrank", cost=1, op="rank_one", args={}, rationale="closed run")
+            Guard(tmp / "r").admit(param="model.layers.2.mlp.down_proj.weight", shape=(10, 50), kind="lowrank", cost=1, op="rank_one", args={}, rationale="closed run")
             raise AssertionError("closed run accepted an edit")
         except GuardError:
             pass
@@ -272,7 +293,7 @@ def selftest(with_model: bool) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
     if not with_model:
         return
-    # 4. real model: Lfm3RMSNorm module + real weights; bf16 rounding; persistence; revert
+    # 4. real model: real weights; bf16 rounding; persistence; revert. Layer 6 = LFM3's layer 4 scaled by 1.5.
     from lfm3u.surgery import score
     from lfm3u.surgery.tools import Session
 
@@ -283,29 +304,27 @@ def selftest(with_model: bool) -> None:
         tok = S.tok
         fp = [score.chat_ids(tok, f"Find the derivative of f(x) = {e}.") for e in ("x^3 + 2*x", "sin(3*x)*exp(x)", "log(x^2 + 1)", "x*cos(x)")]
         cp = [score.chat_ids(tok, q) for q in ("Compute 17 * 23.", "Solve 3*x + 5 = 20 for x.", "Simplify (x^2 - 1)/(x - 1).", "What is 144 / 12?")]
-        r = S.direction(fp, cp, 4, name="r4")["r"]
-        layer = S.model.model.layers[4]
-        name, gname = "model.layers.4.feed_forward.w2.weight", "model.layers.4.post_ffn_norm.weight"
-        W32, g32 = S.effective(name), S.effective(gname)
-        hid = S.activations(fp + cp, ["in:model.layers.4.feed_forward.w2"], cov=True)
-        a = torch.randn(256, W32.shape[1], device=S.device) * hid["in:model.layers.4.feed_forward.w2#m2"].diagonal().sqrt().to(S.device)
-        norm32 = type(layer.post_ffn_norm)(W32.shape[0], eps=layer.post_ffn_norm.variance_epsilon).to(S.device).float()
-        norm32.weight.data.copy_(g32)
+        L = 6
+        r = S.direction(fp, cp, L, name="r4")["r"]
+        layer = S.model.model.layers[L]
+        name = f"model.layers.{L}.mlp.down_proj.weight"
+        W32 = S.effective(name)
+        hid = S.activations(fp + cp, [f"in:model.layers.{L}.mlp.down_proj"], cov=True)
+        a = torch.randn(256, W32.shape[1], device=S.device) * hid[f"in:model.layers.{L}.mlp.down_proj#m2"].diagonal().sqrt().to(S.device)
         rr = r.to(S.device)
 
         def rel(Wx):
-            z = norm32(a @ Wx.T)
+            z = a @ Wx.T                                        # no post-norm: this is the stream write
             return float(((z @ rr).abs() / z.norm(dim=-1)).mean())
 
-        U, V = E.ablate_out(W32, rr, g32)
-        Un, Vn = E.ablate_out(W32, rr, None)
-        b0, b_naive, b_good = rel(W32), rel(W32 + Un @ Vn.T), rel(W32 + U @ V.T)
+        U, V = E.ablate_out(W32, rr, None)
+        b0, b_good = rel(W32), rel(W32 + U @ V.T)
         b_bf16 = rel((W32 + U @ V.T).to(torch.bfloat16).float())
-        print(f"[selftest] layer-4 w2 with Lfm3RMSNorm, mean |z.r|/|z|: unedited {b0:.3g}  naive {b_naive:.3g}  sandwich fp32 {b_good:.3g}  sandwich bf16 {b_bf16:.3g}")
-        assert b_good < 1e-4 * b0 and b_bf16 < 0.02 * b0 and b_naive > 10 * b_bf16
-        # in the running bf16 model: hook the post-norm output on real prompts
+        print(f"[selftest] layer-{L} down_proj, mean |z.r|/|z|: unedited {b0:.3g}  (I - rr^T)W fp32 {b_good:.3g}  bf16 {b_bf16:.3g}")
+        assert b_good < 1e-4 * b0 and b_bf16 < 0.02 * b0
+        # in the running bf16 model: hook the down_proj output (= the MLP's stream write) on real prompts
         cap = {}
-        h = layer.post_ffn_norm.register_forward_hook(lambda _m, _i, o: cap.__setitem__("z", o))
+        h = layer.mlp.down_proj.register_forward_hook(lambda _m, _i, o: cap.__setitem__("z", o))
 
         def live():
             ids = torch.tensor([fp[1]], device=S.device)
@@ -316,7 +335,7 @@ def selftest(with_model: bool) -> None:
 
         before = live()
         orig = S.params[name].detach().clone()
-        rec = S.ablate_direction(name, "r4", rationale="selftest: remove r4 from the layer-4 MLP write")
+        rec = S.ablate_direction(name, "r4", rationale="selftest: remove r4 from the layer-6 MLP write")
         after = live()
         S2 = Session(run)  # a second load re-applies the delta from disk
         same = torch.equal(S2.params[name], S.params[name])
@@ -327,7 +346,8 @@ def selftest(with_model: bool) -> None:
         # keeps its exact bits. Full element-wise comparison against a CPU copy, not the probe's own checksum.
         snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
         used = S.guard.state["calls_used"]
-        pr = S.relearn_probe(steps=(0, 2), n_items=4, max_len=384, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
+        # max_len 1024: Tiny Aya prompts carry a ~350-token system preamble, so 384 cut every answer (no labels, loss 0)
+        pr = S.relearn_probe(steps=(0, 2), n_items=4, max_len=1024, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
         now = dict(S.model.named_parameters())
         identical = list(now) == list(snap) and all(torch.equal(p.detach().cpu(), snap[n]) for n, p in now.items())
         same_objects = all(now[n] is p for n, p in S.params.items())
@@ -340,12 +360,12 @@ def selftest(with_model: bool) -> None:
         assert identical and same_objects and no_adapter and charged == 3 and sorted(pr) == ["0", "2"]
         # sparse edit of a per-layer norm gain (P5) + the gain-adapter probe: the zeroed entries stay zero, every weight
         # keeps its bits, the revert restores the gain, and the final norm stays protected
-        gn = "model.layers.4.post_ffn_norm.weight"
+        gn = f"model.layers.{L}.input_layernorm.weight"
         g0 = S.params[gn].detach().clone()
-        rec2 = S.set_elements(gn, [3, 17], 0.0, rationale="selftest: close two stream coordinates of the layer-4 MLP write")
+        rec2 = S.set_elements(gn, [3, 17], 0.0, rationale="selftest: close two input coordinates of the layer-6 attention and MLP")
         zeroed = bool((S.params[gn][[3, 17]] == 0).all()) and int((S.params[gn] != g0).sum()) <= 2 and rec2["cost"] == 2
         snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
-        pr2 = S.relearn_probe(steps=(1,), n_items=4, max_len=384, gains=True, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
+        pr2 = S.relearn_probe(steps=(1,), n_items=4, max_len=1024, gains=True, cfg={"calc_per_level": 1, "calc_max_new": 48}, note="selftest")
         now = dict(S.model.named_parameters())
         identical2 = list(now) == list(snap) and all(torch.equal(p.detach().cpu(), snap[n]) for n, p in now.items())
         del snap
@@ -353,7 +373,7 @@ def selftest(with_model: bool) -> None:
         S.revert(rec2["id"], "selftest")
         back = torch.equal(S.params[gn], g0)
         try:
-            S.set_elements("model.embedding_norm.weight", [0], 0.0, rationale="must be rejected by the guard")
+            S.set_elements("model.norm.weight", [0], 0.0, rationale="must be rejected by the guard")
             raise AssertionError("final-norm edit accepted")
         except GuardError:
             pass
@@ -366,7 +386,7 @@ def selftest(with_model: bool) -> None:
         # comparison against a CPU copy), its dtype, its frozen state and its parameter objects; a replay reuses the draw
         snap = {n: p.detach().cpu().clone() for n, p in S.model.named_parameters()}
         used = S.guard.state["calls_used"]
-        tiny = {"cfg": {"calc_per_level": 1, "calc_max_new": 48}, "_selftest": {"n_items": 4, "max_len": 384}}
+        tiny = {"cfg": {"calc_per_level": 1, "calc_max_new": 48}, "_selftest": {"n_items": 4, "max_len": 1024}}
         sb = S.relearn_probe_suite(k=3, steps=(1,), note="selftest", **tiny)
         call = S.guard.state["calls_used"]
         full_res = json.loads((S.dir / "scores" / f"{call:02d}_suite.json").read_text(encoding="utf-8"))
@@ -389,11 +409,12 @@ def selftest(with_model: bool) -> None:
         S.revert(rec["id"], "selftest")
         restored = torch.equal(S.params[name], orig)
         h.remove()
-        print(f"[selftest] live bf16 model, layer-4 MLP write along r: before {before:.3g}  after {after:.3g}; "
+        print(f"[selftest] live bf16 model, layer-{L} MLP write along r: before {before:.3g}  after {after:.3g}; "
               f"re-applied on reload: {same}; revert restores the original bits: {restored}; cost {rec['cost']}")
         assert after < 0.05 * before and same and restored
         try:
-            S.rank_one("model.embed_tokens.weight", torch.zeros(128000), torch.zeros(2048), rationale="must be rejected by the guard")
+            emb = S.params["model.embed_tokens.weight"]
+            S.rank_one("model.embed_tokens.weight", torch.zeros(emb.shape[0]), torch.zeros(emb.shape[1]), rationale="must be rejected by the guard")
             raise AssertionError("embedding edit accepted")
         except GuardError:
             pass

@@ -1,0 +1,6 @@
+# Wave 4 (Nov 14 14:55 EST): full-weight algebra relearning on a >= 130 GB box (OOM on 96 GB in wave 3), audit and
+# attacks on the algebra surgery patch, J-lens readout on the book winners.
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w4_atk_full_calc.txt --tag w4_rlf_calc --min-gpu-ram 130 --max-dph 5
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_w4_aud_surg_alg.txt --tag w4_aud_surg_alg --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_w4_atk_surg_alg.txt --tag w4_atk_surg_alg --min-gpu-ram 90 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/jspace_attack.sh --script-args scripts/sweeps/aya_w4_jl_book.txt --tag w4_jl_book --min-gpu-ram 90 --max-dph 2.4 --extra-env BASE_LENS_URI=s3://lexsi-hackathon/aya/jspace/script-20261114-085940-jspace-ca08/base/lens.pt,QUESTIONS_URI=s3://lexsi-hackathon/aya/jspace/inputs/knowmem_forget_qa_jspace.jsonl

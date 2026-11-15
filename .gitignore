@@ -1,4 +1,7 @@
 .empryo/
+# a shell with an unset EMPRYO_TMP variable writes scratch files into a literal "%empryo_tmp%" folder (an extracted
+# SafeTune copy sits there); never commit it
+%empryo_tmp%/
 /data/
 /results/
 *.safetensors

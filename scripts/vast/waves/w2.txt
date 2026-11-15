@@ -1,0 +1,5 @@
+# Wave 2 (Nov 14 ~07:25 EST): reference audits (target, retain-only) and reference attacks; they wait for the
+# selfgen / selfgen_dev files written by wave 1.
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_aud_target.txt --tag aud_target --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/audit_models.sh --script-args scripts/sweeps/aya_aud_retain.txt --tag aud_retain --min-gpu-ram 40 --max-dph 2.4
+--job script --job-script scripts/vast/jobs/attack_models.sh --script-args scripts/sweeps/aya_atk_ref.txt --tag atk_ref --min-gpu-ram 90 --max-dph 2.4

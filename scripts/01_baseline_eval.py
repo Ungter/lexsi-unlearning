@@ -1,7 +1,12 @@
-"""Phase 1 go/no-go baselines for LFM3-1.7B (PLAN.md section 3).
+"""Phase 1 go/no-go baselines for Tiny Aya Global (PLAN.md section 3; aya branch).
+
+Tiny Aya has no thinking mode, so the *_think tasks of the LFM3 version are dropped (passing them is a no-op).
 
 Tasks (--tasks, default all; outputs named in brackets)
-  calc_direct, calc_think      [calculus_direct, calculus_think] sympy derivatives + integrals, levels 1-3, graded by lfm3u.grade
+  calc_direct                  [calculus_direct] sympy derivatives + integrals, levels 1-3, graded by lfm3u.grade
+  math_gen                     [math_gen] lfm3u.data.math_gen items (the unlearning targets' generator) for --math-topics
+                               (default algebra,calculus), levels 1-3, graded by lfm3u.audit.mathgrade; drives the
+                               calculus -> algebra fallback in go_no_go["math_target"]
   knowmem_icl/chat/think       [knowmem_{forget,retain}_qa_<mode>] MUSE-Books QA, ROUGE-L recall + fact presence
   verbmem_raw, verbmem_chat    [verbmem_forget_<mode>] MUSE-Books verbatim continuation (128 tokens), ROUGE-L F1
   mmlu                         [mmlu] fixed 1,000-question subset, 5-shot, letter argmax, accuracy (lfm3u.audit.utility)
@@ -33,6 +38,8 @@ from lfm3u import grade  # noqa: E402
 from lfm3u.audit import muse as book  # noqa: E402
 from lfm3u.audit import utility  # noqa: E402
 from lfm3u.audit.calc_probe import generate_calculus  # noqa: E402
+from lfm3u.audit.mathgrade import grade_item  # noqa: E402
+from lfm3u.data import math_gen  # noqa: E402
 from lfm3u.infer import MODEL_ID, Generator, Sampling, general, math_thinking  # noqa: E402
 
 KNOW_CHAT, VERB_CHAT = book.KNOW_CHAT, book.VERB_CHAT
@@ -40,11 +47,13 @@ FLAGS = ("refused", "abstained", "gibberish", "truncated")
 CALC_METRICS = ("correct", "parse_failed")
 KNOW_METRICS = ("rougeL_recall", "rougeL_f1", "fact", "fact_in_reasoning", "hidden_fact")
 VERB_METRICS = ("rougeL_f1", "rougeL_recall")
-TASKS = ("calc_direct", "knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "mmlu", "ppl_fineweb",
-         "ifeval_direct", "knowmem_think", "ifeval_think", "calc_think")
-ALIASES = {"all": TASKS, "calculus": ("calc_direct", "calc_think"),
-           "book": ("knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "knowmem_think"),
-           "utility": ("mmlu", "ppl_fineweb", "ifeval_direct", "ifeval_think")}
+TASKS = ("calc_direct", "math_gen", "knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat", "mmlu", "ppl_fineweb",
+         "ifeval_direct")
+THINK_TASKS = ("knowmem_think", "ifeval_think", "calc_think")  # LFM3 only; ignored here (no thinking mode)
+ALIASES = {"all": TASKS, "calculus": ("calc_direct", "math_gen"), "gate": ("calc_direct", "math_gen"),
+           "book": ("knowmem_icl", "knowmem_chat", "verbmem_raw", "verbmem_chat"),
+           "utility": ("mmlu", "ppl_fineweb", "ifeval_direct")}
+GATE = 0.40  # direct accuracy needed on levels 1 and 2
 
 
 def mean(xs):
@@ -124,6 +133,34 @@ def run_calculus(gen: Generator, problems: list[dict], thinking: bool, max_token
     name = f"calculus_{'think' if thinking else 'direct'}"
     write_jsonl(out / "generations" / f"{name}.jsonl", rows)
     return name, calc_summary(rows) | {"perf": perf, "sampling": s.as_dict(), "thinking": thinking}
+
+
+def math_gen_items(topics: tuple[str, ...], n_per_level: int, seed: int = 777) -> list[dict]:
+    """Fresh math_gen items (seed 777, never used by the Phase-2 build, which uses seed 0)."""
+    return [it.to_alpaca() for t in topics for lvl in math_gen.LEVELS for it in math_gen.generate(t, lvl, n_per_level, seed)]
+
+
+def math_row(r: dict, output: str, extra: dict) -> dict:
+    return ({k: r.get(k) for k in ("id", "topic", "level", "kind", "instruction", "answer")} | {"output": output} | extra
+            | grade_item(r, output))
+
+
+def math_summary(rows: list[dict]) -> dict:
+    summ = {"overall": summarize(rows, ("correct",))}
+    for t in sorted({r["topic"] for r in rows}):
+        summ[t] = summarize([r for r in rows if r["topic"] == t], ("correct",))
+        for lvl in sorted({r["level"] for r in rows if r["topic"] == t}):
+            summ[f"{t}_L{lvl}"] = summarize([r for r in rows if r["topic"] == t and r["level"] == lvl], ("correct",))
+    return summ
+
+
+def run_math_gen(gen: Generator, items: list[dict], max_tokens: int, out: Path):
+    s = Sampling(max_tokens)
+    outs, perf = gen.generate([gen.chat_ids(r["instruction"]) for r in items], s)
+    rows = [math_row(r, o["text"], {"n_tokens": o["n_tokens"], "finish_reason": o["finish_reason"],
+                                    "truncated": o["finish_reason"] == "length"}) for r, o in zip(items, outs)]
+    write_jsonl(out / "generations" / "math_gen.jsonl", rows)
+    return "math_gen", math_summary(rows) | {"perf": perf, "sampling": s.as_dict()}
 
 
 # ------------------------------------------------------------------ MUSE-Books
@@ -277,8 +314,20 @@ def go_no_go(res: dict) -> dict:
     cd = res.get("calculus_direct")
     if cd:
         l1, l2 = (cd.get(f"L{i}", {}).get("correct") for i in (1, 2))
-        out["calculus"] = {"rule": "direct accuracy >= 0.40 on L1 and L2", "L1": l1, "L2": l2,
-                           "go": bool(l1 is not None and l2 is not None and l1 >= 0.4 and l2 >= 0.4)}
+        out["calculus"] = {"rule": f"direct accuracy >= {GATE} on L1 and L2", "L1": l1, "L2": l2,
+                           "go": bool(l1 is not None and l2 is not None and l1 >= GATE and l2 >= GATE)}
+    mg = res.get("math_gen")
+    if mg:
+        for t in math_gen.TOPICS:
+            l1, l2 = (mg.get(f"{t}_L{i}", {}).get("correct") for i in (1, 2))
+            if l1 is None and l2 is None:
+                continue
+            out[f"math_gen_{t}"] = {"rule": f"math_gen direct accuracy >= {GATE} on L1 and L2", "L1": l1, "L2": l2,
+                                    "go": bool(l1 is not None and l2 is not None and l1 >= GATE and l2 >= GATE)}
+        # calculus stays the target only if both the Phase-1 probe and the target's own generator pass; else algebra
+        calc_go = out.get("calculus", {}).get("go", True) and out.get("math_gen_calculus", {}).get("go", False)
+        alg_go = out.get("math_gen_algebra", {}).get("go", False)
+        out["math_target"] = "calculus" if calc_go else ("algebra" if alg_go else None)
     km = {k: v["rougeL_recall"] for k, v in res.items() if k.startswith("knowmem_forget_qa")}
     vb = {k: v["rougeL_f1"] for k, v in res.items() if k.startswith("verbmem_forget")}
     if km:
@@ -300,10 +349,12 @@ def main():
     ap.add_argument("--think-max-tokens", type=int, default=16384, help="calculus with thinking")
     ap.add_argument("--chat-max-tokens", type=int, default=256, help="knowmem chat without thinking")
     ap.add_argument("--book-think-max-tokens", type=int, default=8192, help="knowmem chat with thinking")
-    ap.add_argument("--ifeval-max-tokens", type=int, default=8192, help="IFEval, both modes")
-    ap.add_argument("--max-model-len", type=int, default=32768)
+    ap.add_argument("--ifeval-max-tokens", type=int, default=2048, help="IFEval")
+    ap.add_argument("--max-model-len", type=int, default=8192)
+    ap.add_argument("--math-topics", default="algebra,calculus", help="math_gen task topics (math_gen.TOPICS)")
+    ap.add_argument("--math-n-per-level", type=int, default=70)
     ap.add_argument("--limit", type=int, default=0, help="cap items per task (smoke test)")
-    ap.add_argument("--skip-think", action="store_true")
+    ap.add_argument("--skip-think", action="store_true", help="no-op (no thinking mode)")
     ap.add_argument("--tasks", default="all", help=f"comma list of {','.join(TASKS)} or aliases {','.join(ALIASES)}")
     ap.add_argument("--regrade", nargs="+", metavar="DIR", help="re-score saved generations in these result dirs and exit")
     a = ap.parse_args()
@@ -315,8 +366,10 @@ def main():
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     tasks = {t for name in a.tasks.split(",") for t in ALIASES.get(name, (name,))}
-    if a.skip_think:
-        tasks -= {"calc_think", "knowmem_think"}
+    dropped = tasks & set(THINK_TASKS)
+    if dropped:
+        print(f"[tasks] no thinking mode on Tiny Aya; skipping {sorted(dropped)}", flush=True)
+        tasks -= dropped
     unknown = tasks - set(TASKS)
     if unknown:
         sys.exit(f"unknown tasks: {sorted(unknown)}")
@@ -324,6 +377,10 @@ def main():
     if a.limit:  # spread the smoke-test subset across levels and kinds
         problems = problems[::max(1, len(problems) // a.limit)][:a.limit]
     write_jsonl(out / "data" / "calculus_phase1.jsonl", problems)
+    mg_items = math_gen_items(tuple(t for t in a.math_topics.split(",") if t), a.math_n_per_level)
+    if a.limit:
+        mg_items = mg_items[::max(1, len(mg_items) // a.limit)][:a.limit]
+    write_jsonl(out / "data" / "math_gen_gate.jsonl", mg_items)
 
     t0 = time.time()
     gen = Generator(a.model, backend=a.backend, max_model_len=a.max_model_len)
@@ -343,6 +400,8 @@ def main():
         if task.startswith("calc_"):
             think = task == "calc_think"
             record(run_calculus(gen, problems, thinking=think, max_tokens=a.think_max_tokens if think else a.direct_max_tokens, out=out))
+        elif task == "math_gen":
+            record(run_math_gen(gen, mg_items, a.direct_max_tokens, out))
         elif task.startswith("knowmem_"):
             mode = task.split("_", 1)[1]
             max_tokens = {"icl": 32, "chat": a.chat_max_tokens, "think": a.book_think_max_tokens}[mode]

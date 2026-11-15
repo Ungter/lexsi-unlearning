@@ -3,9 +3,14 @@
 Each calculus problem is rewritten so the operation word is replaced by a placeholder ("Apply operation Z to
 f(x) = ... with respect to x [on the interval [a, b]]."; no calculus words). The J-space direction of the operation
 concept (``v = J_l^T u_t``, mean of the unit pullbacks of ' derivative'/' differentiate' or ' integral'/' integrate')
-is added to the residual at the placeholder token (pos=hole) or at every prompt position after BOS (pos=all), at one
-layer or a band, as ``alpha * ||h_p|| * v_hat`` (src/lfm3u/jspace/inject.py inject_rows). Only the prompt prefill is
-edited; generated tokens are not. Greedy, thinking off, chat template, no system prompt.
+is added to the residual at the placeholder token (pos=hole) or at every position of the user turn and the generation
+prompt (pos=all; Tiny Aya's template injects a ~350-token default system preamble, which is NOT edited, unlike LFM3's
+"every position after BOS"), at one layer or a band, as ``alpha * ||h_p|| * v_hat`` (src/lfm3u/jspace/inject.py
+inject_rows). Only the prompt prefill is edited; generated tokens are not. Greedy, chat template (arch.chat_text; no
+thinking mode on Tiny Aya), no extra system prompt.
+
+Tiny Aya port: layer grid scaled x1.5 from LFM3's 24 layers (5..16 -> 8..24; bands 5-8, 9-12, 13-16, 5-12 ->
+8-12, 14-18, 20-24, 8-18). Concept words that are not a single token are skipped (at least one must be).
 
 Stages
   sweep  (target only, DEV split math_calc_dev.jsonl, n per kind): controls a/b plus the grid
@@ -25,6 +30,15 @@ antiderivative of f; for defint the definite value), and whether the output name
   python scripts/14_jspace_inject.py --model PATH --name target --lens lens.pt --out results/jspace/inject_calc/target
          --stages sweep,eval            # target
   python scripts/14_jspace_inject.py ... --stages eval --config results/jspace/inject_calc/target/config.json
+
+Aya branch (arch.MATH_TARGET = algebra): MODE = "algebra". The paired operations are FACTOR and EXPAND (inverse of each
+other, so the wrong-concept control is as clean as derivative vs integral): factor items (expanded quadratic, answer
+in factored form) and expand items (kind "algebra": (a*x + b)*(x + c), answer expanded) from
+data/algebra/level2/{dev,test}.jsonl by default. Hole prompt "Apply operation Z to p(x) = <expr>." (no factor/expand
+words); concepts ' factor'/' factorize'/' factored' and ' expand'/' expanded'/' expansion' (multi-token words skipped);
+op_factor / op_expand = the output equals p(x) AND is in factored / expanded form (math_gen.is_factored / is_expanded).
+If an operation has no single-token concept word, or MATH_TARGET is neither calculus nor algebra, the run writes
+<out>/skipped.json and exits 0.
 """
 from __future__ import annotations
 
@@ -43,7 +57,7 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from lfm3u import grade  # noqa: E402
+from lfm3u import arch, grade  # noqa: E402
 from lfm3u.audit.mathgrade import grade_item  # noqa: E402
 from lfm3u.data import math_gen as mg  # noqa: E402
 
@@ -51,10 +65,26 @@ CONCEPTS = {"diff": (" derivative", " differentiate"), "int": (" integral", " in
 FORBIDDEN = re.compile(r"deriv|differentia|integra|antideriv|d/dx|\bdx\b", re.I)
 MARKER_CTX, MARKER = "operation ", "Z"
 TAIL = " Give the final answer on the last line as 'Answer: <expression>'."
-STRIP = ("<|im_end|>", "<|endoftext|>", "<|startoftext|>", "<|im_start|>")
+STRIP = arch.SPECIAL_STRIP
 NAMES_DIFF = re.compile(r"derivative|differentiat", re.I)  # run inj_1 used r"deriv|differentia" (also hits "derive")
 NAMES_INT = re.compile(r"integra|antideriv", re.I)
 TEST_COUNTS = {"diff": 34, "integral": 33, "defint": 33}
+
+MODE = arch.MATH_TARGET if arch.MATH_TARGET in ("calculus", "algebra") else None
+OPS = ("diff", "int")  # names of the two concept operations (op_<name> / names_<name> fields)
+if MODE == "algebra":
+    CONCEPTS = {"factor": (" factor", " factorize", " factored"), "expand": (" expand", " expanded", " expansion")}
+    FORBIDDEN = re.compile(r"factor|expand|expansion|multipl|distribut|foil", re.I)
+    NAMES = {"factor": re.compile(r"factor", re.I), "expand": re.compile(r"expand|expansion|distribut", re.I)}
+    TEST_COUNTS = {"factor": 50, "algebra": 50}
+    OPS = ("factor", "expand")
+else:
+    NAMES = {"diff": NAMES_DIFF, "int": NAMES_INT}
+_EXPAND_Q = re.compile(r"^Expand (.+)\.$")
+
+
+class ConceptSkip(Exception):
+    """The attack cannot run for this model / math target (written to <out>/skipped.json, exit 0)."""
 
 
 def seeded(*parts) -> random.Random:
@@ -75,19 +105,36 @@ def pick(rows: list[dict], counts: dict[str, int], tag: str) -> list[dict]:
     return out
 
 
+def alg_expr(r: dict) -> str:
+    """The expression the algebra operation is applied to (factor: the expanded quadratic; expand: the product)."""
+    if r["kind"] == "factor":
+        return r["expr"]
+    m = _EXPAND_Q.match(r["question"])
+    if not m:
+        raise ValueError(f"not an expand question: {r['question']}")
+    return m.group(1)
+
+
 def hole_prompt(r: dict) -> str:
-    rng = f" on the interval [{r['lower']}, {r['upper']}]" if r["kind"] == "defint" else ""
-    p = f"Apply {MARKER_CTX}{MARKER} to f(x) = {r['expr']} with respect to x{rng}.{TAIL}"
+    if MODE == "algebra":
+        p = f"Apply {MARKER_CTX}{MARKER} to p(x) = {alg_expr(r)}.{TAIL}"
+    else:
+        rng = f" on the interval [{r['lower']}, {r['upper']}]" if r["kind"] == "defint" else ""
+        p = f"Apply {MARKER_CTX}{MARKER} to f(x) = {r['expr']} with respect to x{rng}.{TAIL}"
     if FORBIDDEN.search(p):
-        raise ValueError(f"calculus word in placeholder prompt: {p}")
+        raise ValueError(f"operation word in placeholder prompt: {p}")
     return p
 
 
 def right_op(kind: str) -> str:
+    if MODE == "algebra":
+        return "factor" if kind == "factor" else "expand"
     return "diff" if kind == "diff" else "int"
 
 
 def wrong_op(kind: str) -> str:
+    if MODE == "algebra":
+        return "expand" if kind == "factor" else "factor"
     return "int" if kind == "diff" else "diff"
 
 
@@ -127,6 +174,13 @@ def derivative_of(expr: str) -> str | None:
 
 def grade_row(r: dict, text: str) -> dict:
     g = grade_item(r, text, thinking=False)
+    if MODE == "algebra":  # both forms equal p(x); the operation is told apart by the form of the answer
+        poly = r["expr"] if r["kind"] == "factor" else r["answer"]
+        op_f = grade_item({"kind": "factor", "answer": poly, "expr": poly}, text)["correct"]
+        op_e = grade_item({"kind": "algebra", "answer": poly, "expr": ""}, text)["correct"]
+        return {"correct": g["correct"], "gibberish": g["gibberish"], "answer_text": g["answer_text"], "parsed": g["parsed"],
+                "op_factor": bool(op_f), "op_expand": bool(op_e),
+                "names_factor": bool(NAMES["factor"].search(text)), "names_expand": bool(NAMES["expand"].search(text))}
     d = derivative_of(r["expr"])
     if r["kind"] == "diff":
         op_diff = g["correct"]
@@ -146,10 +200,11 @@ def summarize(recs: list[dict]) -> dict:
     by_kind = defaultdict(list)
     for r in recs:
         by_kind[r["kind"]].append(r)
-    keys = ("correct", "gibberish", "truncated", "op_diff", "op_int", "names_diff", "names_int")
+    ops = [f"op_{o}" for o in OPS]
+    keys = ("correct", "gibberish", "truncated", *ops, *(f"names_{o}" for o in OPS))
     out = {"n": len(recs), **{("acc" if k == "correct" else k): m(k, recs) for k in keys}}
     out["by_kind"] = {k: {"n": len(rs), "acc": m("correct", rs), "gibberish": m("gibberish", rs),
-                          "truncated": m("truncated", rs), "op_diff": m("op_diff", rs), "op_int": m("op_int", rs)}
+                          "truncated": m("truncated", rs), **{o: m(o, rs) for o in ops}}
                       for k, rs in sorted(by_kind.items())}
     out["acc_mean_over_kinds"] = round(sum(v["acc"] for v in out["by_kind"].values()) / max(1, len(by_kind)), 3)
     return out
@@ -178,13 +233,15 @@ class Runner:
             for w in words:
                 t = self.tok(w, add_special_tokens=False).input_ids
                 if len(t) != 1:
-                    raise ValueError(f"concept word {w!r} is not one token: {t}")
+                    print(f"[inj14] concept word {w!r} is not one token ({t}); skipped", flush=True)
+                    continue
                 ids.append(t[0])
+            if not ids:
+                raise ConceptSkip(f"no single-token concept word for {op}: {words}")
             self.concept_ids[op] = ids
         self._dirs: dict = {}
-        im_end = self.tok.convert_tokens_to_ids("<|im_end|>")
-        self.eos = sorted(i for i in {self.tok.eos_token_id, im_end} if isinstance(i, int) and i >= 0)
-        self.pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else self.tok.eos_token_id
+        self.eos = arch.eos_ids(self.tok)
+        self.pad = self.tok.pad_token_id if self.tok.pad_token_id is not None else self.eos[0]
         self.strip = tuple(s for s in (*STRIP, self.tok.eos_token, self.tok.pad_token) if s)
 
     def direction(self, op: str, layer: int) -> torch.Tensor:
@@ -198,12 +255,13 @@ class Runner:
         return self._dirs[key]
 
     def encode(self, prompt: str, pos: str | None) -> tuple[list[int], list[bool]]:
-        text = self.tok.apply_chat_template([{"role": "user", "content": prompt}], add_generation_prompt=True,
-                                            tokenize=False, enable_thinking=False)
+        text = arch.chat_text(self.tok, prompt)
         enc = self.tok(text, add_special_tokens=False, return_offsets_mapping=True)
         ids, offs = enc["input_ids"], enc["offset_mapping"]
         if pos == "all":
-            mask = [i > 0 for i in range(len(ids))]
+            # user turn onwards (the user content and the template tokens after it), not the default system preamble
+            u = text.rindex(prompt)
+            mask = [i > 0 and b > u for i, (_a, b) in enumerate(offs)]
         elif pos == "hole":
             s = text.index(MARKER_CTX + MARKER) + len(MARKER_CTX)
             e = s + len(MARKER)
@@ -284,7 +342,7 @@ def cfg_key(edit: dict) -> str:
 
 
 def run_sweep(R: Runner, a, out: Path) -> dict:
-    dev = pick(read_jsonl(a.dev), {"diff": a.dev_per_kind, "integral": a.dev_per_kind, "defint": a.dev_per_kind}, "dev")
+    dev = pick(read_jsonl(a.dev), {k: a.dev_per_kind for k in TEST_COUNTS}, "dev")
     specs = [s for s in parse_specs(a.layers) if all(l in R.lens_layers for l in s)]
     if not specs:
         raise ValueError(f"no layer spec inside the lens layers {R.lens_layers}")
@@ -350,12 +408,13 @@ def run_eval(R: Runner, a, out: Path, cfg: dict) -> dict:
     res = {"name": a.name, "model": a.model, "lens": a.lens, "config": cfg, "concept_tokens": {k: list(v) for k, v in CONCEPTS.items()},
            "concept_ids": R.concept_ids, "n_test": len(test), "test_counts": counts, "max_tokens": a.max_tokens,
            "greedy": True, "thinking": False, "generate_seconds": round(time.time() - t0, 1),
-           "hole_template": f"Apply {MARKER_CTX}{MARKER} to f(x) = <expr> with respect to x[ on the interval [a, b]].{TAIL}",
+           "mode": MODE, "hole_template": (f"Apply {MARKER_CTX}{MARKER} to p(x) = <expr>.{TAIL}" if MODE == "algebra" else
+                                           f"Apply {MARKER_CTX}{MARKER} to f(x) = <expr> with respect to x[ on the interval [a, b]].{TAIL}"),
            "conditions": {c: summarize(by[c]) for c in ("a_explicit", "b_hole", "inj", "c_random", "d_wrong")}}
     (out / "summary.json").write_text(json.dumps(res, indent=2), encoding="utf-8")
     for c, s in res["conditions"].items():
         print(f"[inj14] {a.name} {c:10s} acc {s['acc']:.3f} gib {s['gibberish']:.3f} trunc {s['truncated']:.3f} "
-              f"op_diff {s['op_diff']:.3f} op_int {s['op_int']:.3f}", flush=True)
+              + " ".join(f"op_{o} {s[f'op_{o}']:.3f}" for o in OPS), flush=True)
     return res
 
 
@@ -367,11 +426,11 @@ def main() -> None:
     ap.add_argument("--out", required=True)
     ap.add_argument("--stages", default="eval", help="sweep,eval | eval")
     ap.add_argument("--config", default=None, help="eval only: config.json written by the target's sweep")
-    ap.add_argument("--dev", default="attack_data/_inputs/math_calc_dev.jsonl")
-    ap.add_argument("--test", default="attack_data/_inputs/math_calc_test.jsonl")
+    ap.add_argument("--dev", default=None, help="calculus: attack_data/_inputs/math_calc_dev.jsonl; algebra: data/algebra/level2/dev.jsonl")
+    ap.add_argument("--test", default=None, help="calculus: attack_data/_inputs/math_calc_test.jsonl; algebra: data/algebra/level2/test.jsonl")
     ap.add_argument("--dev-per-kind", type=int, default=6)
-    ap.add_argument("--n-test-per-kind", type=int, default=0, help="0 = 34/33/33")
-    ap.add_argument("--layers", default="5,6,7,8,9,10,11,12,13,14,15,16,5-8,9-12,13-16,5-12")
+    ap.add_argument("--n-test-per-kind", type=int, default=0, help="0 = 34/33/33 (calculus) or 50/50 (algebra factor/expand)")
+    ap.add_argument("--layers", default="8,9,11,12,14,15,17,18,20,21,23,24,8-12,14-18,20-24,8-18")  # LFM3 5..16 x1.5
     ap.add_argument("--alphas", default="0.25,0.5,1,2")
     ap.add_argument("--positions", default="hole,all")
     ap.add_argument("--max-tokens", type=int, default=1024)
@@ -380,8 +439,19 @@ def main() -> None:
     a = ap.parse_args()
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
+    alg = MODE == "algebra"
+    a.dev = a.dev or ("data/algebra/level2/dev.jsonl" if alg else "attack_data/_inputs/math_calc_dev.jsonl")
+    a.test = a.test or ("data/algebra/level2/test.jsonl" if alg else "attack_data/_inputs/math_calc_test.jsonl")
     stages = a.stages.split(",")
-    R = Runner(a)
+    try:
+        if MODE is None:
+            raise ConceptSkip(f"no concept-injection design for math target {arch.MATH_TARGET}")
+        R = Runner(a)
+    except ConceptSkip as e:
+        (out / "skipped.json").write_text(json.dumps({"name": a.name, "math_target": arch.MATH_TARGET, "skipped": str(e)}, indent=2),
+                                          encoding="utf-8")
+        print(f"[inj14] skipped: {e}", flush=True)
+        return
     cfg = run_sweep(R, a, out) if "sweep" in stages else None
     if "eval" in stages:
         if cfg is None:

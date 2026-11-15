@@ -1,0 +1,3 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on alg_npofull_lr3e-5_e2
+12_relearn.py rl_alg_npofull s3://lexsi-hackathon/models/script-20261114-083254-alg_full-5fba/alg_npofull_lr3e-5_e2 --domain calc
+20_weight_attacks.py wa_alg_npofull s3://lexsi-hackathon/models/script-20261114-083254-alg_full-5fba/alg_npofull_lr3e-5_e2 --domain calc

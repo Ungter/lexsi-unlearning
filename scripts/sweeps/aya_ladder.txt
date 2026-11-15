@@ -1,0 +1,15 @@
+# Tiny Aya depth ladder (PLAN 4.7, H3): ladder.txt with rungs arithmetic -> algebra -> calculus, each with --target, the
+# NPO-KL LoRA recipe (lr 5e-4, 400 forget items, retain = the other math topics + general chat). The Aya math target is
+# ALGEBRA (arch.MATH_TARGET), so the algebra rung is the headline; 08_dev_eval scores the 'calc' task on
+# --math-target (default algebra), so evaluate each rung with --math-target <its topic> to read its own forgetting.
+# Doses copied from ladder.txt (LFM3 step-matching to the calculus rung's ~570 steps at 4096-token batches); with the
+# Aya --batch-tokens 1024 default the step counts are ~4x higher: re-match the epochs to the algebra rung once it ran.
+# Calculus rung is FLOOR-LIMITED: base Tiny Aya failed the Phase-1 calculus gate (calculus L1 ~0.54 and lower above), so
+# there is little calculus skill to remove and few correct selfgen calculus rows; read it as a low-ceiling control.
+# 3-epoch rungs (fixed hyperparameters, as PLAN states)
+ladder_arith_npo_e3 --target arithmetic --method npo --lr 5e-4 --epochs 3 --n-forget 400
+ladder_alg_npo_e3 --target algebra --method npo --lr 5e-4 --epochs 3 --n-forget 400
+ladder_calc_npo_e3 --target calculus --method npo --lr 5e-4 --epochs 3 --n-forget 400
+# Step-matched rungs (LFM3 matching: arithmetic 20 epochs, algebra 13, calculus 3)
+ladder_arith_npo_e20 --target arithmetic --method npo --lr 5e-4 --epochs 20 --n-forget 400
+ladder_alg_npo_e13 --target algebra --method npo --lr 5e-4 --epochs 13 --n-forget 400

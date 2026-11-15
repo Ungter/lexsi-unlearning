@@ -1,0 +1,2 @@
+# Tiny Aya reference audit (full 10_audit, book + algebra attack sets) of the MUSE target A15.
+target s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15

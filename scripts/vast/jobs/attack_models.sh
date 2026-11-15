@@ -2,11 +2,15 @@
 # Phase-6 HF-based attacks (8 abliteration, 10 relearning). Each argument is a spec file; each non-comment line is
 #   SCRIPT NAME REF [script args...]      SCRIPT = 11_abliterate.py | 12_relearn.py | 17_local_abl.py ; REF = s3:// prefix or HF id
 # Results: results/{abl,relearn,local_abl}/NAME (mirrored to the run prefix). The relearning script needs the dev-split
-# self-generated solutions (selfgen_dev_v3.jsonl, written by selfgen_dev.sh); lines wait up to 30 min for it.
+# self-generated solutions (selfgen_dev.jsonl, written by selfgen_dev.sh); lines wait up to 30 min for it.
+# Tiny Aya (aya branch): data / selfgen_dev default to the aya/ prefix (LFM3's phase2-20261109.tgz and selfgen_dev_v3
+# hold LFM3 token ids / generations). Layer arguments in the spec files must be for 36 layers (LFM3 x 1.5, e.g.
+# 17_local_abl.py --layers 3,4,5,6 for LFM3 2,3,4); 17_local_abl sites are resid / mlp / attn (w2/ffn/op still accepted).
 set -uo pipefail
 source scripts/vast/common.sh
-DATA_URI=${DATA_URI:-$BUCKET_URI/data/phase2-20261109.tgz}
-SELFGEN_DEV_URI=${SELFGEN_DEV_URI:-$BUCKET_URI/unlearn/selfgen_dev_v3.jsonl}
+DATA_URI=${DATA_URI:-$BUCKET_URI/aya/data/phase2.tgz}
+SELFGEN_DEV_URI=${SELFGEN_DEV_URI:-$BUCKET_URI/aya/unlearn/selfgen_dev.jsonl}
+ATTACK_URI=${ATTACK_URI:-$BUCKET_URI/aya/attack_data}  # ALGEBRA attack sets (arch.MATH_TARGET), not the LFM3 calculus ones
 mkdir -p work models results
 
 stage "install peft"
@@ -20,7 +24,7 @@ stage "data + attack sets"
 if [ ! -f data/MANIFEST.json ]; then
   { $PY -m lfm3u.storage get "$DATA_URI" /tmp/data.tgz && tar xzf /tmp/data.tgz -C /root/lexsi; } || fail "data"
 fi
-$PY -m lfm3u.storage download "$BUCKET_URI/attack_data" attack_data || fail "attack_data"
+$PY -m lfm3u.storage download "$ATTACK_URI" attack_data || fail "attack_data"
 
 wait_selfgen_dev() {
   local t=0

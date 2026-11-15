@@ -7,8 +7,10 @@
 set -uo pipefail
 source scripts/vast/common.sh
 JLENS_SHA=581d398613e5602a5af361e1c34d3a92ea82ba8e
-BASE_LENS_URI=${BASE_LENS_URI:-$BUCKET_URI/jspace/script-20261109-034952/base/lens.pt}
-TARGET_LENS_URI=${TARGET_LENS_URI:-$BUCKET_URI/jspace/script-20261109-065711/target_v3/lens.pt}
+# Tiny Aya port: lens URIs are required (jspace.sh writes them to $BUCKET_URI/aya/jspace/<RUN_ID>/<name>/lens.pt);
+# the LFM3 defaults were removed.
+BASE_LENS_URI=${BASE_LENS_URI:?set BASE_LENS_URI to the Tiny Aya base lens}
+TARGET_LENS_URI=${TARGET_LENS_URI:?set TARGET_LENS_URI to the Tiny Aya target lens}
 OUT=results/jspace/inject_calc
 CONFIG=$OUT/target/config.json
 mkdir -p work models attack_data/_inputs "$OUT"
@@ -38,11 +40,11 @@ for SPEC in "$@"; do
     if [ "$SMOKED" = 0 ]; then
       stage "smoke: $NAME, 1 problem per kind, 32 tokens"
       $PY scripts/14_jspace_inject.py --model "$MP" --name smoke --lens "work/${LENS}_lens.pt" --out work/smoke \
-        --stages sweep,eval --layers 8,5-6 --alphas 0.5 --dev-per-kind 1 --n-test-per-kind 1 --max-tokens 32 \
+        --stages sweep,eval --layers 12,8-9 --alphas 0.5 --dev-per-kind 1 --n-test-per-kind 1 --max-tokens 32 \
         --sweep-max-tokens 32 < /dev/null || fail "smoke"
       SMOKED=1
     fi
-    ARGS=(--model "$MP" --name "$NAME" --lens "work/${LENS}_lens.pt" --out "$OUT/$NAME" --stages "$STAGES" --batch 192)
+    ARGS=(--model "$MP" --name "$NAME" --lens "work/${LENS}_lens.pt" --out "$OUT/$NAME" --stages "$STAGES" --batch 128)  # 192 -> 128: Tiny Aya KV ~74 KB/token
     if [[ $STAGES != *sweep* ]]; then
       [ -f "$CONFIG" ] || { failed "$NAME: no $CONFIG (target sweep missing)"; continue; }
       ARGS+=(--config "$CONFIG")

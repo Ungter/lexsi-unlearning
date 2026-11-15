@@ -7,13 +7,14 @@ Book forget
 Book retain
   knowmem_retain   book/knowmem_retain_qa_{train,dev} (76), ICL
   retain_nll       NLL on book/raw_retain{1,2}_dev chunks (up to 100)
-Calculus forget / math retain (direct mode, greedy; lfm3u.audit.mathgrade)
-  calc             calculus/level{1,2,3}/dev, --calc-per-level each
-  calc_think       calculus dev, --calc-think-per-level each, thinking mode (model-card math sampling)
-  retain_math      arithmetic/algebra/precalculus level{1,2,3}/dev, --retain-per-level each
+Math forget / math retain (direct mode, greedy; lfm3u.audit.mathgrade)
+  calc             <--math-target>/level{1,2,3}/dev (default calculus; algebra if calculus failed the Phase-1 gate),
+                     --calc-per-level each (the task keeps the name "calc" so reports and sweeps stay compatible)
+  retain_math      the other math_gen topics, level{1,2,3}/dev, --retain-per-level each
 Utility
   mmlu_val         200 MMLU *validation* questions (the 1,000-question test subset is kept for the audit), 5-shot
-  ifeval_think     100 IFEval prompts, thinking mode, prompt-level strict
+  ifeval_think     100 IFEval prompts, prompt-level strict (Tiny Aya has no thinking mode: direct, model-card
+                   sampling; the name is kept for report compatibility). calc_think is dropped (no-op).
   ppl_web          perplexity on the 64 held-out FineWeb anchor docs (never trained on), first 1,024 tokens
 
 --system adds a system prompt to every chat-format task (the PLAN B0 prompt baseline; raw-completion tasks have no
@@ -32,14 +33,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from lfm3u import grade  # noqa: E402
+from lfm3u import arch, grade  # noqa: E402
 from lfm3u.audit import muse, utility  # noqa: E402
 from lfm3u.audit.mathgrade import grade_item  # noqa: E402
 from lfm3u.data.splits import read_jsonl  # noqa: E402
 from lfm3u.infer import Generator, Sampling, math_thinking  # noqa: E402
 
 TASKS = ("verbmem_seen", "verbmem_unseen", "knowmem_forget", "knowmem_retain", "retain_nll", "calc", "retain_math",
-         "mmlu_val", "ppl_web", "ifeval_think", "calc_think")
+         "mmlu_val", "ppl_web", "ifeval_think")
+MATH_TOPICS = ("arithmetic", "algebra", "precalculus", "calculus")
 ANCHOR_URI = "s3://lexsi-hackathon/eval/fineweb_anchor.jsonl"
 ANCHOR_VAL = 64
 
@@ -99,8 +101,8 @@ def t_retain_nll(c: Ctx):
     chunks = c.rows("book/raw_retain1_dev.jsonl", "book/raw_retain2_dev.jsonl")
     c.rng.shuffle(chunks)
     chunks = c.lim(chunks[:100])
-    bos = c.gen.tok.bos_token_id
-    lps = c.gen.prompt_logprobs([[bos, *r["input_ids"]] for r in chunks])
+    # the frozen chunks carry LFM3 input_ids; re-tokenize their text for Tiny Aya (first 1,024 tokens)
+    lps = c.gen.prompt_logprobs([c.gen.raw_ids(r["text"])[:1024] for r in chunks])
     return utility.perplexity(lps)
 
 
@@ -150,11 +152,10 @@ def t_ifeval(c: Ctx):
     docs = c.lim(sorted(random.Random(c.a.seed).sample(docs, 100), key=lambda d: d["key"]))
     from lfm3u.infer import general
 
-    outs, _ = c.gen.generate([c.chat(d["prompt"], thinking=True) for d in docs], general(c.a.think_max_tokens))
+    outs, _ = c.gen.generate([c.chat(d["prompt"]) for d in docs], general(c.a.think_max_tokens))
     rows = []
     for d, o in zip(docs, outs):
-        _, final, closed = grade.split_thinking(o["text"])
-        final = final if closed else ""
+        _, final, _ = grade.split_thinking(o["text"])  # no thinking block on Tiny Aya: final = the whole answer
         rows.append({"key": d["key"], "final": final, "truncated": o["finish_reason"] == "length",
                      "gibberish": grade.is_gibberish(final)} | utility.grade_ifeval(d, final))
     write_jsonl(c.out / "generations" / "ifeval_think.jsonl", rows)
@@ -183,11 +184,12 @@ def main() -> None:
     ap.add_argument("--system", default=None, help="system prompt for chat tasks (prompt baseline)")
     ap.add_argument("--tasks", default=",".join(TASKS))
     ap.add_argument("--calc-per-level", type=int, default=80)
-    ap.add_argument("--calc-think-per-level", type=int, default=20)
+    ap.add_argument("--calc-think-per-level", type=int, default=20, help="unused (no thinking mode)")
     ap.add_argument("--retain-per-level", type=int, default=30)
+    ap.add_argument("--math-target", default=arch.MATH_TARGET, choices=MATH_TOPICS, help="forget topic scored by the calc task")
     ap.add_argument("--direct-max-tokens", type=int, default=3072)
-    ap.add_argument("--think-max-tokens", type=int, default=6144)
-    ap.add_argument("--max-model-len", type=int, default=16384)
+    ap.add_argument("--think-max-tokens", type=int, default=2048, help="IFEval max tokens")
+    ap.add_argument("--max-model-len", type=int, default=8192)
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--limit", type=int, default=0, help="cap items per task (smoke test)")
     a = ap.parse_args()
@@ -210,9 +212,8 @@ def main() -> None:
         "knowmem_forget": lambda: t_knowmem(c, "forget", "knowmem_forget"),
         "knowmem_retain": lambda: t_knowmem(c, "retain", "knowmem_retain"),
         "retain_nll": lambda: t_retain_nll(c),
-        "calc": lambda: t_math(c, ("calculus",), a.calc_per_level, "calc"),
-        "calc_think": lambda: t_math(c, ("calculus",), a.calc_think_per_level, "calc_think", thinking=True),
-        "retain_math": lambda: t_math(c, ("arithmetic", "algebra", "precalculus"), a.retain_per_level, "retain_math"),
+        "calc": lambda: t_math(c, (a.math_target,), a.calc_per_level, "calc"),
+        "retain_math": lambda: t_math(c, tuple(t for t in MATH_TOPICS if t != a.math_target), a.retain_per_level, "retain_math"),
         "mmlu_val": lambda: t_mmlu_val(c),
         "ifeval_think": lambda: t_ifeval(c),
         "ppl_web": lambda: t_ppl_web(c),

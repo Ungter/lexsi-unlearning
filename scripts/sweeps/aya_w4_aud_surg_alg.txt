@@ -1,0 +1,2 @@
+# Tiny Aya wave 4: full audit of the algebra weight-surgery patch (documented failure of objective (c))
+aya_l2_alg_b50 s3://lexsi-hackathon/models/surgery/aya_l2_alg_b50 --domains calc

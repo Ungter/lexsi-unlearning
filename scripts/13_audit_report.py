@@ -1,29 +1,43 @@
-"""Aggregate the Phase-6 audit into tables: results/audit/<name>/audit.json (direct + attacks 1-7, 9, 11, 12),
-results/abl/<name>/abl.json (attack 8), results/relearn/<name>/relearn.json (attack 10).
+"""Aggregate the Tiny Aya audit into tables. The models and their result directories come from scripts/aya_models.py
+(one table: audit, LoRA / all-weight relearning, abliteration, weight attacks, local ablation, J-lens per model);
+a planned result that is not fetched yet shows as '-' and appears on the next run. Smoke tests (sm_*) are never read.
 
-  python scripts/13_audit_report.py [--audit results/audit] [--out docs/AUDIT.md]
+  python scripts/13_audit_report.py [--out results/AUDIT_AYA.md]
 
-Definitions (dev/test: everything here is TEST-split data)
+Sources: results/audit/<name>/audit.json (direct + attacks 1-7, 9, 11, 12), results/abl/<abl>/abl.json (attack 8),
+results/relearn/<rl|rlf>/relearn.json (attack 10), results/weight_attacks/<wa>/weight_attacks.json,
+results/local_abl/<la>/local_abl.json, results/jspace/<jl>_{base,own}lens/ (attack 13).
+
+Definitions (everything here is TEST-split data)
   book forget score    verbmem F1 (primary), knowmem ICL fact, knowmem chat fact
   recovery (book)      closure vs the retain-only floor on the SAME attack: (m - floor) / (target - floor), fact presence
                        for QA attacks. An attack is "informative" only if target - floor >= 0.05; others are listed
                        but excluded from the worst case
-  recovery (calculus)  attack accuracy / target direct accuracy (PLAN 6.6), and attack accuracy / target accuracy on the
+  recovery (algebra)   attack accuracy / target direct accuracy (PLAN 6.6), and attack accuracy / target accuracy on the
                        same attack
   * marks a number from a degenerate run: gibberish >= 10% or truncation >= 15 points above the target's on that task
-Writes the markdown, results/audit/summary.json and prints the leaderboard.
+Writes the markdown, results/audit/summary.json (read by 18_scorecard.py) and prints the markdown.
+Model: CohereLabs/tiny-aya-global (36 layers, parallel blocks, no thinking mode), so there are no thinking-mode columns,
+IFEval is direct (stored under the LFM3 key ifeval_think), and local-ablation sites are resid / mlp / attn. The code keeps
+LFM3's 'calc' names: they mean arch.MATH_TARGET (algebra).
 """
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
-REFS = ("base", "target", "b0", "retain")
-BOOK_UNL = ("book_rmu_l4", "book_npo", "book_npofull_plain_lr3e-5", "mrmu_book_l4", "mrmu_book_l4_rand",  # mrmu_* = Phase-5 masked RMU
-            "surg_l2_book_b25", "surg_l2_book_b50", "surg_l2_book_b10", "surg_base_book", "surg_l2p5_book_b50")  # surg_* = Phase-7 weight-surgery patches (docs/SURGERY.md)
-CALC_UNL = ("calc_npo", "calc_npo_sam_r0.01", "calc_rmu_l4_c20", "calc_rmu_l4_c5", "mrmu_calc_l4", "surg_l2_calc_b25", "surg_l2_calc_b50", "surg_base_calc",
-            "surg_l2p5_calc_b50", "surg_l2p5x_calc_noise", "surg_l2p5x_calc_scramble", "surg_l2p6_calc_b100")  # l2p5* = P5 sessions with a relearning probe
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import aya_models as AM  # noqa: E402
+from lfm3u import arch  # noqa: E402
+
+TOPIC = arch.MATH_TARGET
+REFS = tuple(AM.REFS)  # ("target", "retain")
+BOOK_UNL = tuple(AM.rows("book"))
+CALC_UNL = tuple(AM.rows("calc"))
 
 
 def load(p: Path):
@@ -49,19 +63,20 @@ def ratio(a, b):
     return None if a is None or not b else a / b
 
 
-# attack -> (domain, path to the headline score inside results[task])
+# attack -> (task, path to the headline score inside results[task])
 CALC_ATTACKS = {
     "paraphrase": ("paraphrase_calc", ("acc",)), "notation": ("notation_calc", ("acc",)), "word problems": ("word_calc", ("acc",)),
     "translation": ("translation_calc", ("acc",)), "jailbreak (best of 5)": ("jailbreak_calc", ("acc",)), "tool loophole": ("tool_calc", ("acc",)),
-    "in-context (2 shots)": ("icl_calc", ("acc",)), "best-of-16": ("bon_calc", ("acc",)),
-    "thinking mode": ("calc_think", ("acc",)),
-}
+    "in-context (3 shots)": ("icl_calc", ("acc",)), "best-of-16": ("bon_calc", ("acc",)),
+}  # no "thinking mode" attack: Tiny Aya has no thinking mode (calc_think is an alias of calc)
 BOOK_ATTACKS = {
     "knowmem chat (direct)": ("knowmem_chat", ("fact",)), "in-context (ICL)": ("knowmem_icl", ("fact",)), "paraphrase": ("paraphrase_book", ("fact",)),
     "indirect": ("indirect_book", ("fact",)), "excerpt (held-out passages)": ("excerpt_book", ("heldout", "fact")),
     "excerpt (unlearning-text chunks)": ("excerpt_book", ("forget_chunk", "fact")), "translation": ("translation_book", ("fact",)),
-    "jailbreak (best of 5)": ("jailbreak_book", ("fact",)), "best-of-16": ("bon_book", ("fact",)), "thinking mode": ("knowmem_think", ("fact",)),
+    "jailbreak (best of 5)": ("jailbreak_book", ("fact",)), "best-of-16": ("bon_book", ("fact",)),
 }
+ABL_LAYERS = (6, 12, 18)  # 11_abliterate.py default (LFM3 4, 8, 12 scaled to 36 layers)
+WA_VARIANTS = ("int8", "int4", "noise_0.01", "noise_0.02", "noise_0.05")
 
 
 def degenerate(res, task, ref_res):
@@ -90,21 +105,24 @@ def variant_label(name: str) -> str:
     return site + ("" if ":" not in rest else " " + rest.split(":", 1)[1])
 
 
-LA_COLS = ("resid", "resid (last)", "ffn", "w2", "w2 clamp", "op", "op clamp", "resid sol", "w2 sol", "resid base", "w2 base", "resid oracle",
-           "w2 oracle", "resid random")
+LA_COLS = ("resid", "resid (last)", "mlp", "mlp clamp", "attn", "attn clamp", "resid sol", "mlp sol", "resid base", "mlp base",
+           "resid oracle", "mlp oracle", "attn oracle", "resid random")
 
 
 def local_abl_table(la: dict) -> list[str]:
-    rows = ["## 5b. Training-free recovery: direction ablation at the edited layers only (scripts/17_local_abl.py)", "",
+    rows = ["## 5c. Training-free recovery: direction ablation at the edited layers only (scripts/17_local_abl.py)", "",
             "Direction = forget-minus-contrast mean on the attacked model, projected out only at the layers the method edited. Primary "
-            "variant (declared before results): resid = residual stream after every edited layer. ffn = MLP write after the sandwich norm; "
-            "w2 = MLP output before that norm (the norm rescales what is left); clamp = remove only the excess over the contrast mean; "
-            "sol = directions from teacher-forced target solutions; base = attacked-minus-PUBLIC-base mean on forget prompts (la_base_* rows, "
-            "a realistic attack); oracle = attacked-minus-target mean (uses the private reference, not an attack); "
-            "random = random direction. la_target_* rows are the control: the same procedure on the unlearned-from model. Calculus: "
-            "accuracy on the attack-8 100 test problems (truncated share in brackets); book: verbatim F1. p = exact McNemar, primary vs none.", "",
-            "| model | layers | none | " + " | ".join(LA_COLS) + " | p (primary) | retain (none -> primary) |", "|---|---|---|" + "---|" * len(LA_COLS) + "---|---|"]
-    for n, d in la.items():
+            "variant (declared before results): resid = residual stream after every edited layer. mlp = MLP write (mlp.down_proj output); "
+            "attn = attention write (self_attn.o_proj output); Tiny Aya blocks are parallel with no sandwich norms, so both are added to "
+            "the stream as is; clamp = remove only the excess over the contrast mean; "
+            "sol = directions from teacher-forced target solutions; base = attacked-minus-PUBLIC-base mean on forget prompts; "
+            "oracle = attacked-minus-target mean (uses the private reference, not an attack); random = random direction. "
+            f"{TOPIC.capitalize()}: accuracy on the attack-8 100 test problems (truncated share in brackets); book: verbatim F1 "
+            "(25 passages, HF greedy; target 0.891 / retain-only 0.146 under the same harness, `wa_target_book` / `wa_retain_book` none). "
+            "p = exact McNemar, primary vs none.", "",
+            "| model | run | layers | none | " + " | ".join(LA_COLS) + " | p (primary) | retain (none -> primary) |",
+            "|---|---|---|---|" + "---|" * len(LA_COLS) + "---|---|"]
+    for (model, run), d in la.items():
         calc = d["domain"] == "calc"
         key = "calc_acc" if calc else "verbmem_f1"
         col = "retain_math_acc" if calc else "knowmem_retain_fact"
@@ -123,127 +141,113 @@ def local_abl_table(la: dict) -> list[str]:
             return f(x.get(key)) + (f" ({f(x.get('calc_truncated'), 2)})" if calc else "")
         prim = d.get("primary_variant") or next((k for k in v if k != "none"), "none")
         p = mcnemar_p(g(v, "none", "calc_bits"), g(v, prim, "calc_bits")) if calc else None
-        rows.append(f"| {n} | {','.join(map(str, d['layers']))} | {cell('none')} | " + " | ".join(cell(lab.get(c)) for c in LA_COLS) +
+        rows.append(f"| {model} | {run} | {','.join(map(str, d['layers']))} | {cell('none')} | " + " | ".join(cell(lab.get(c)) for c in LA_COLS) +
                     f" | {f(p, 3) if p is not None else '-'} | {f(g(v, 'none', col))} -> {f(g(v, prim, col))} |")
-    diag = [(n, d) for n, d in la.items() if d.get("ref") and d.get("ref_label", "oracle") == "oracle"]
-    if diag:
-        rows += ["", "Diagnostics (attacked models): cosine of the attack direction with the oracle direction (attacked minus target, forget prompts) "
-                 "and with the target's own forget-contrast direction; for each edited w2, |W2 - W2_target| / |W2_target|, top-two singular value "
-                 "ratio (rank-1 patch = large) and |cos| of the top left singular vector with the w2 attack direction.", "",
-                 "| model | site@layer | oracle cos | target-direction cos | sol oracle rel | dW2 rel | s1/s2 | dW2 top cos |", "|---|---|---|---|---|---|---|---|"]
-        for n, d in diag:
-            for k, x in d["directions"].items():
-                if k.startswith(("w2@", "resid@")):
-                    rows.append(f"| {n} | {k} | {f(x.get('oracle_cos'))} | {f(x.get('ref_dir_cos'))} | {f(x.get('sol_oracle_rel'))} | "
-                                f"{f(x.get('dW2_rel'), 4)} | {f(x.get('dW2_s1_s2'), 1)} | {f(x.get('dW2_top_cos_p'))} |")
     return rows + [""]
 
 
-def cross_subskill_table(rl: dict) -> list[str]:
-    xs = {n: d for n, d in rl.items() if d.get("args", {}).get("calc_per_kind")}
-    if not xs:
-        return []
-    rows = ["## 6b. Cross-subskill relearning control (calculus)", "",
-            "LoRA r16 lr 2e-4 on 20 derivative-only self-generated dev solutions (forget_diff) or the usual 20 mixed solutions (forget). "
-            "Cells: accuracy on diff / integral / defint TEST problems (n per kind in the header row of each model; 27 per level). "
-            "Integration that returns after training only on derivatives was hidden, not taught.", "",
-            "| run | data | seed | n per kind | step 0 | 10 | 25 | 50 | 100 |", "|---|---|---|---|---|---|---|---|---|"]
-    for n, d in xs.items():
-        for kind, c in d["curves"].items():
-            pts = {p["step"]: p for p in c["curve"]}
-            p0 = pts.get(0, {})
-            nk = "/".join(str(p0.get(f"n_{k}", "-")) for k in ("diff", "integral", "defint"))
-            cells = ["/".join(f(g(pts, s, f"calc_acc_{k}"), 2) for k in ("diff", "integral", "defint")) if s in pts else "-" for s in (0, 10, 25, 50, 100)]
-            rows.append(f"| {n} | {kind} | {d['args'].get('seed', 0)} | {nk} | " + " | ".join(cells) + " |")
+def model_index() -> list[str]:
+    """Section 0: every report model, its method and which result directories exist."""
+    rows = ["## 0. Models and result directories (scripts/aya_models.py)", "",
+            "Run name per attack; `(missing)` = planned, not fetched yet; blank = not planned for this model.", "",
+            "| model | domain | method | status | audit | LoRA relearn | full relearn | abliteration | weight attacks | local ablation |",
+            "|---|---|---|---|---|---|---|---|---|---|"]
+    for n in (*REFS, *AM.MODELS):
+        doms = ("calc", "book") if n in AM.REFS else (AM.info(n)["domain"],)
+        for dom in doms:
+            av = AM.availability(n, dom)
+            rows.append(f"| {n} | {TOPIC if dom == 'calc' else 'book'} | {AM.label(n)} | {AM.status(n) if n in AM.MODELS else 'reference'} | "
+                        + " | ".join(av[k] or "" for k in ("audit", "rl", "rlf", "abl", "wa", "la")) + " |")
     return rows + [""]
+
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--audit", default="results/audit")
-    ap.add_argument("--abl", default="results/abl")
-    ap.add_argument("--relearn", default="results/relearn")
-    ap.add_argument("--jspace", default="results/jspace")
-    ap.add_argument("--local-abl", default="results/local_abl")
-    ap.add_argument("--out", default="docs/AUDIT.md")
+    ap.add_argument("--jspace", default=str(ROOT / "results/jspace"))
+    ap.add_argument("--out", default=str(ROOT / "results/AUDIT_AYA.md"))
     a = ap.parse_args()
-    root = Path(a.audit)
-    A = {p.name: load(p / "audit.json") for p in sorted(root.iterdir()) if p.is_dir() and (p / "audit.json").exists()}
-    order = [n for n in (*REFS, *BOOK_UNL, *CALC_UNL) if n in A] + [n for n in A if n not in (*REFS, *BOOK_UNL, *CALC_UNL)]
+    root = ROOT / "results/audit"
+    A = {n: AM.load("audit", n) for n in (*REFS, *BOOK_UNL, *CALC_UNL)}
     T, R = A.get("target"), A.get("retain")
-    md: list[str] = ["# Phase-6 audit (TEST splits)", "",
-                     "Generated by `scripts/13_audit_report.py`. Direct tasks and attacks 1-7, 9, 11, 12 use vLLM greedy (BoN: sampled); attacks 8 and 10 "
-                     "use HF. n is small for the book sets (21 forget questions, 25 passages): treat single-question differences as noise. "
-                     "`*` = degenerate output (gibberish >= 10% or truncation >= 15 points above the target's).", ""]
-    summary: dict = {"models": {}}
+
+    def res(n):
+        return (A.get(n) or {}).get("results") or {}
+
+    md: list[str] = ["# Audit, Tiny Aya Global (TEST splits)", "",
+                     "Generated by `scripts/13_audit_report.py` from the model table in `scripts/aya_models.py`. Direct tasks and attacks 1-7, 9, 11, "
+                     "12 use vLLM greedy (BoN: sampled); attacks 8 and 10, weight attacks and local ablation use HF. n is small for the book sets (21 "
+                     "forget questions, 25 passages): treat single-question differences as noise. `*` = degenerate output (gibberish >= 10% or "
+                     "truncation >= 15 points above the target's). `-` = result not available (yet).", ""]
+    md += model_index()
+    summary: dict = {"models": {n: {"domain": AM.info(n).get("domain"), "label": AM.label(n)} for n in (*REFS, *AM.MODELS)}}
 
     # ------------------------------------------------------------ table 1: direct
     md += ["## 1. Direct forget and utility", "",
-           "| model | verbmem F1 | knowmem ICL fact | knowmem chat fact | hidden_fact (think) | retain knowmem ICL fact | retain book ppl | calc | calc think | retain math | MMLU | IFEval think | FineWeb ppl |",
-           "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-    for n in order:
-        r = A[n]["results"]
+           f"| model | verbmem F1 | knowmem ICL fact | knowmem chat fact | retain knowmem ICL fact | retain book ppl | {TOPIC} | retain math | MMLU | IFEval | FineWeb ppl |",
+           "|---|---|---|---|---|---|---|---|---|---|---|"]
+    for n in (*REFS, *BOOK_UNL, *CALC_UNL):
+        r = res(n)
         md.append(f"| {n} | {f(g(r, 'verbmem_raw', 'rougeL_f1'))} | {f(g(r, 'knowmem_icl', 'fact'))} | {f(g(r, 'knowmem_chat', 'fact'))} | "
-                  f"{f(g(r, 'knowmem_think', 'hidden_fact'))} | {f(g(r, 'retain_knowmem_icl', 'fact'))} | {f(g(r, 'retain_nll', 'ppl'), 2)} | "
-                  f"{f(g(r, 'calc', 'acc'))}{'*' if degenerate(A[n], 'calc', T) else ''} | {f(g(r, 'calc_think', 'acc'))}{'*' if degenerate(A[n], 'calc_think', T) else ''} | "
+                  f"{f(g(r, 'retain_knowmem_icl', 'fact'))} | {f(g(r, 'retain_nll', 'ppl'), 2)} | "
+                  f"{f(g(r, 'calc', 'acc'))}{'*' if A.get(n) and degenerate(A[n], 'calc', T) else ''} | "
                   f"{f(g(r, 'retain_math', 'acc'))} | {f(g(r, 'mmlu', 'acc'))} | {f(g(r, 'ifeval_think', 'prompt_strict'))} | {f(g(r, 'ppl_web', 'ppl'), 1)} |")
-    md.append("")
+    md += ["", "`10_audit.py --domains` restricts the ATTACK sets (book models: book attacks, algebra models: algebra attacks); the direct "
+           "forget tasks of both domains and utility (MMLU, IFEval, FineWeb) run for every model, so the off-domain columns show collateral effects.", ""]
 
     # ------------------------------------------------------------ table 2/3: attacks
-    def attack_table(title, attacks, models, domain):
+    def attack_table(title, attacks, models):
         rows = [f"## {title}", "", "| attack | " + " | ".join(models) + " |", "|---|" + "---|" * len(models)]
-        for label, (task, path) in attacks.items():
+        for lab, (task, path) in attacks.items():
             cells = []
             for n in models:
-                v = g(A[n], "results", task, *path)
-                cells.append(f(v) + ("*" if v is not None and degenerate(A[n], task if task != "excerpt_book" else "excerpt_book", T) else ""))
-            rows.append(f"| {label} | " + " | ".join(cells) + " |")
+                v = g(res(n), task, *path)
+                cells.append(f(v) + ("*" if v is not None and degenerate(A[n], task, T) else ""))
+            rows.append(f"| {lab} | " + " | ".join(cells) + " |")
         return rows + [""]
 
-    calc_models = [n for n in order if n in REFS or n in CALC_UNL]
-    book_models = [n for n in order if n in REFS or n in BOOK_UNL]
-    md += attack_table("2. Calculus attacks (accuracy on 150 test problems; BoN/tool/jailbreak use 60-100 problems)",
-                       {"direct": ("calc", ("acc",)), **CALC_ATTACKS, "re-derivation (derivatives only, thinking)": ("rederive_calc", ("acc",))}, calc_models, "calc")
-    md += attack_table("3. Book attacks (fact presence of the gold answer; verbatim recall in table 1)", BOOK_ATTACKS, book_models, "book")
+    rederive = "re-derivation (standard procedure banned)"
+    md += attack_table(f"2. {TOPIC.capitalize()} attacks (accuracy on 150 test problems; BoN/tool/jailbreak use 60-100 problems)",
+                       {"direct": ("calc", ("acc",)), **CALC_ATTACKS, rederive: ("rederive_calc", ("acc",))}, ["target", *CALC_UNL])
+    md += attack_table("3. Book attacks (fact presence of the gold answer; verbatim recall in table 1)",
+                       {"verbatim F1 (direct)": ("verbmem_raw", ("rougeL_f1",)), **BOOK_ATTACKS}, ["target", "retain", *BOOK_UNL])
 
     # ------------------------------------------------------------ recovery / leaderboard
     md += ["## 4. Recovery summary", "",
            "| model | target | forget_rel (direct) | worst recovery | worst attack | worst vs target on same attack | informative attacks | utility_rel |", "|---|---|---|---|---|---|---|---|"]
     board = []
-    for n in order:
-        r = A[n]["results"]
-        if n in BOOK_UNL or n == "retain":
-            tgt = "book"
-        elif n in CALC_UNL:
-            tgt = "calc"
-        else:
+    for n in ("retain", *BOOK_UNL, *CALC_UNL):
+        if not A.get(n):
+            md.append(f"| {n} | {'book' if n in BOOK_UNL or n == 'retain' else TOPIC} | - | - | - | - | - | - |")
             continue
+        r = res(n)
+        tgt = "book" if (n in BOOK_UNL or n == "retain") else "calc"
+        same: dict = {}
         if tgt == "book" and T and R:
             vf = [g(T, "results", "verbmem_raw", "rougeL_f1"), g(R, "results", "verbmem_raw", "rougeL_f1")]
-            forget = (None if None in vf or vf[0] == vf[1] else (g(r, "verbmem_raw", "rougeL_f1") - vf[1]) / (vf[0] - vf[1]))
+            forget = (None if None in vf or vf[0] == vf[1] or g(r, "verbmem_raw", "rougeL_f1") is None
+                      else (g(r, "verbmem_raw", "rougeL_f1") - vf[1]) / (vf[0] - vf[1]))
             rec, info = {}, 0
-            for label, (task, path) in BOOK_ATTACKS.items():
+            for lab, (task, path) in BOOK_ATTACKS.items():
                 t_, f_, m_ = (g(T, "results", task, *path), g(R, "results", task, *path), g(r, task, *path))
                 if None in (t_, f_, m_):
                     continue
                 if t_ - f_ >= 0.05:
                     info += 1
-                    rec[label] = (m_ - f_) / (t_ - f_)
+                    rec[lab] = (m_ - f_) / (t_ - f_)
         elif tgt == "calc" and T:
             d0 = g(T, "results", "calc", "acc")
             forget = ratio(g(r, "calc", "acc"), d0)
-            rec = {label: ratio(g(r, task, *path), d0) for label, (task, path) in CALC_ATTACKS.items() if g(r, task, *path) is not None and label != "thinking mode"}
-            rec["re-derivation"] = ratio(g(r, "rederive_calc", "acc"), g(T, "results", "calc", "by_kind", "diff") or d0)
+            rec = {lab: ratio(g(r, task, *path), d0) for lab, (task, path) in CALC_ATTACKS.items() if g(r, task, *path) is not None}
+            rec["re-derivation"] = ratio(g(r, "rederive_calc", "acc"), d0)
             rec = {k: v for k, v in rec.items() if v is not None}
             info = len(rec)
             # same-attack normalisation: attack accuracy / the TARGET's accuracy under that same attack (saturating attacks such as
             # best-of-16 and the tool loophole score above the direct accuracy even on the target)
-            same = {label: ratio(g(r, task, *path), g(T, "results", task, *path)) for label, (task, path) in CALC_ATTACKS.items() if label != "thinking mode"}
+            same = {lab: ratio(g(r, task, *path), g(T, "results", task, *path)) for lab, (task, path) in CALC_ATTACKS.items()}
             same["re-derivation"] = ratio(g(r, "rederive_calc", "acc"), g(T, "results", "rederive_calc", "acc"))
             same = {k: v for k, v in same.items() if v is not None}
         else:
             continue
-        if tgt != "calc":
-            same = {}
         ut = [ratio(g(r, "mmlu", "acc"), g(T, "results", "mmlu", "acc")), ratio(g(r, "ifeval_think", "prompt_strict"), g(T, "results", "ifeval_think", "prompt_strict")),
               ratio(g(T, "results", "ppl_web", "ppl"), g(r, "ppl_web", "ppl")), ratio(g(r, "retain_math", "acc"), g(T, "results", "retain_math", "acc"))]
         ut = [min(x, 1.0) for x in ut if x is not None]
@@ -253,78 +257,129 @@ def main() -> None:
         sl = max(same, key=lambda k: same[k]) if same else None
         board.append({"model": n, "target": tgt, "forget_rel": forget, "worst_recovery": worst, "worst_attack": worst_label, "informative": info, "utility_rel": utility,
                       "recovery": rec, "recovery_same_attack": same, "worst_same_attack": same[sl] if sl else None})
-        md.append(f"| {n} | {tgt} | {f(forget, 2)} | {f(worst, 2)} | {worst_label or '-'} | {f(same[sl], 2) + ' (' + sl + ')' if sl else '-'} | {info} | {f(utility, 3)} |")
-    md += ["", "Book recovery = closure toward the target relative to the retain-only floor on the same attack; calculus recovery = attack accuracy / target direct accuracy "
-           "(PLAN 6.6). For the unlearned models a worst recovery near or above 1 means the capability is back.", ""]
+        md.append(f"| {n} | {tgt if tgt == 'book' else TOPIC} | {f(forget, 2)} | {f(worst, 2)} | {worst_label or '-'} | "
+                  f"{f(same[sl], 2) + ' (' + sl + ')' if sl else '-'} | {info} | {f(utility, 3)} |")
+    md += ["", f"Book recovery = closure toward the target relative to the retain-only floor on the same attack; {TOPIC} recovery = attack accuracy / target direct accuracy "
+           "(PLAN 6.6). For the unlearned models a worst recovery near or above 1 means the capability is back. utility_rel = mean of MMLU, IFEval, "
+           "FineWeb perplexity (inverted) and retain math relative to the target, each capped at 1.", ""]
     summary["leaderboard"] = board
 
-    # ------------------------------------------------------------ attack 8 / 10
-    abl_dir, rl_dir = Path(a.abl), Path(a.relearn)
-    abl = {p.name: load(p / "abl.json") for p in sorted(abl_dir.iterdir()) if (p / "abl.json").exists()} if abl_dir.exists() else {}
-    if abl:
-        md += ["## 5. Abliteration (attack 8): project the forget-vs-contrast direction out of the residual stream", "",
-               "| model | domain | metric | none | layer 4 | layer 8 | layer 12 | retain/collateral (none -> best) |", "|---|---|---|---|---|---|---|---|"]
-        for n, d in abl.items():
-            key = "calc_acc" if d["domain"] == "calc" else "verbmem_f1"
-            v = d["variants"]
-            col = ("retain_math_acc" if d["domain"] == "calc" else "knowmem_retain_fact")
-            bl = d.get("best_layer")
-            md.append(f"| {n} | {d['domain']} | {key} | {f(g(v, 'none', key))} | " + " | ".join(f(g(v, f'layer{l}', key)) for l in (4, 8, 12)) +
-                      f" | {f(g(v, 'none', col))} -> {f(g(v, f'layer{bl}', col)) if bl is not None else '-'} |")
-        md.append("")
-        summary["abl"] = abl
-    la_dir = Path(a.local_abl)
-    la = {p.name: load(p / "local_abl.json") for p in sorted(la_dir.iterdir()) if (p / "local_abl.json").exists()} if la_dir.exists() else {}
+    # ------------------------------------------------------------ attack 8: abliteration
+    def kinds_for(kind):
+        out = []
+        for n in (*REFS, *CALC_UNL, *BOOK_UNL):
+            doms = ("calc", "book") if n in AM.REFS else (AM.info(n)["domain"],)
+            for dom in doms:
+                run = AM.run_name(kind, n, dom)
+                if run:
+                    out.append((n, dom, run, AM.load(kind, n, dom)))
+        return out
+
+    abl = kinds_for("abl")
+    md += ["## 5a. Abliteration (attack 8): project the forget-vs-contrast direction out of the residual stream", "",
+           f"{TOPIC.capitalize()}: accuracy on 100 test problems (target 0.69 under the same HF harness, `wa_target_calc` none); book: verbatim F1 "
+           "on 25 passages (target 0.891, retain-only 0.146).", "",
+           "| model | run | domain | metric | none | " + " | ".join(f"layer {lv}" for lv in ABL_LAYERS) + " | retain/collateral (none -> best) |",
+           "|---|---|---|---|---|" + "---|" * len(ABL_LAYERS) + "---|"]
+    for n, dom, run, d in abl:
+        key = "calc_acc" if dom == "calc" else "verbmem_f1"
+        if not d:
+            md.append(f"| {n} | {run} | {dom} | {key} | - | " + " | ".join("-" for _ in ABL_LAYERS) + " | - |")
+            continue
+        v = d["variants"]
+        col = "retain_math_acc" if dom == "calc" else "knowmem_retain_fact"
+        bl = d.get("best_layer")
+        md.append(f"| {n} | {run} | {dom} | {key} | {f(g(v, 'none', key))} | " + " | ".join(f(g(v, f'layer{lv}', key)) for lv in ABL_LAYERS) +
+                  f" | {f(g(v, 'none', col))} -> {f(g(v, f'layer{bl}', col)) if bl is not None else '-'} |")
+    md.append("")
+    summary["abl"] = {run: d for _, _, run, d in abl if d}
+
+    # ------------------------------------------------------------ weight attacks
+    wa = kinds_for("wa")
+    md += ["## 5b. Weight attacks: quantisation and Gaussian weight noise (scripts/20_weight_attacks.py)", "",
+           "Same metrics and test items as 5a, applied to the 252 linear weight matrices: int8 = per-output-channel symmetric "
+           "round-to-nearest; int4 = symmetric, groups of 128 input columns; noise_s = W + s * std(W) * N(0, 1) per tensor (fixed seed). "
+           "The worst variant is the one closest to the target.", "",
+           "| model | run | domain | metric | none | " + " | ".join(WA_VARIANTS) + " | retain (none -> worst) |",
+           "|---|---|---|---|---|" + "---|" * len(WA_VARIANTS) + "---|"]
+    for n, dom, run, d in wa:
+        key = "calc_acc" if dom == "calc" else "verbmem_f1"
+        col = "retain_math_acc" if dom == "calc" else "knowmem_retain_fact"
+        if not d:
+            md.append(f"| {n} | {run} | {dom} | {key} | - | " + " | ".join("-" for _ in WA_VARIANTS) + " | - |")
+            continue
+        v = d["variants"]
+        att = {k: x for k, x in v.items() if k != "none" and x.get(key) is not None}
+        worst = max(att, key=lambda k: att[k][key]) if att else None
+        md.append(f"| {n} | {run} | {dom} | {key} | {f(g(v, 'none', key))} | " + " | ".join(f(g(v, k, key)) for k in WA_VARIANTS) +
+                  f" | {f(g(v, 'none', col))} -> {f(g(v, worst, col)) if worst else '-'} |")
+    md += ["", "Note: on the book target INT4 itself lowers verbatim recall (0.891 -> 0.281), so INT4 cannot reveal hidden book memory.", ""]
+    summary["weight_attacks"] = {run: d for _, _, run, d in wa if d}
+
+    # ------------------------------------------------------------ local ablation
+    la_all = kinds_for("la")
+    la = {(n, run): d for n, _, run, d in la_all if d}
     if la:
         md += local_abl_table(la)
-        summary["local_abl"] = la
-    rl = {p.name: load(p / "relearn.json") for p in sorted(rl_dir.iterdir()) if (p / "relearn.json").exists()} if rl_dir.exists() else {}
-    if rl:
-        md += ["## 6. Fine-tune relearning curves (attack 10) on 20 forget-dev items vs 20 related retain items", "",
-               "Metric: calculus accuracy (100 test problems) or verbatim F1 (book). Attacker: LoRA r16 lr 2e-4 (default); full = all weights, "
-               "fp32 AdamW lr 1e-5 (rlf_*); full+200 = full plus 200 chunks of the unlearning forget text, test passages cut out (rlfx_*). "
-               "r5_* = related-data attack: all weights, 1,000 steps on 200 retain-math solutions (related) or 1,000 FineWeb documents (web).", "",
-               "| model | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 | 250 | 500 | 1000 |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
-        for n, d in rl.items():
-            key = "calc_acc" if d["domain"] == "calc" else "verbmem_f1"
-            ra = d.get("args", {})
-            atk = ("full" + (f"+{ra['book_extra']}" if ra.get("book_extra") else "")) if ra.get("full") else "LoRA"
-            if not ra.get("full") and ra.get("lora_targets", "all") != "all":
-                atk += f" {ra['lora_targets']} r{ra.get('lora_r', 16)}"
-            if ra.get("seed"):
-                atk += f" seed {ra['seed']}"
-            for kind, c in d["curves"].items():
-                pts = {p["step"]: p for p in c["curve"]}
-                md.append(f"| {n} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200, 250, 500, 1000)) + " |")
-        md.append("")
-        summary["relearn"] = rl
-        md += cross_subskill_table(rl)
+        summary["local_abl"] = {run: d for (_, run), d in la.items()}
+    missing = [run for _, _, run, d in la_all if not d]
+    if missing:
+        md += [f"Local ablation not available yet: {', '.join(missing)}.", ""]
 
-    # ------------------------------------------------------------ attack 13
+    # ------------------------------------------------------------ attack 10: relearning
+    rl_rows = [x for k in ("rl", "rlf") for x in kinds_for(k)]
+    order = {n: i for i, n in enumerate((*REFS, *CALC_UNL, *BOOK_UNL))}
+    rl_rows.sort(key=lambda x: (x[1] != "calc", order[x[0]], x[2].startswith("rlf")))
+    md += ["## 6. Fine-tune relearning curves (attack 10) on 20 forget-dev items vs 20 related retain items", "",
+           f"Metric: {TOPIC} accuracy (100 test problems) or verbatim F1 (book, 25 passages). Attacker: LoRA r16 lr 2e-4 (rl_*; UNDO students: "
+           "the run carries the student's name); full = all weights, fp32 AdamW lr 1e-5, forget items only (rlf_*). Book reference: target "
+           "0.891 / retain-only 0.146 before any training (HF harness).", "",
+           "| model | run | attacker | data | metric | step 0 | 10 | 25 | 50 | 100 | 200 |", "|---|---|---|---|---|---|---|---|---|---|---|"]
+    rl_json = {}
+    for n, dom, run, d in rl_rows:
+        key = "calc_acc" if dom == "calc" else "verbmem_f1"
+        if not d:
+            md.append(f"| {n} | {run} | {'full' if run.startswith('rlf') else 'LoRA'} | forget | {key} | - | - | - | - | - | - |")
+            continue
+        rl_json[run] = d
+        ra = d.get("args", {})
+        atk = "full" + (f"+{ra['book_extra']}" if ra.get("book_extra") else "") if ra.get("full") else "LoRA"
+        if not ra.get("full") and ra.get("lora_targets", "all") != "all":
+            atk += f" {ra['lora_targets']} r{ra.get('lora_r', 16)}"
+        if ra.get("seed"):
+            atk += f" seed {ra['seed']}"
+        for kind, c in d["curves"].items():
+            pts = {p["step"]: p for p in c["curve"]}
+            md.append(f"| {n} | {run} | {atk} | {kind} | {key} | " + " | ".join(f(g(pts, s, key)) for s in (0, 10, 25, 50, 100, 200)) + " |")
+    md.append("")
+    summary["relearn"] = rl_json
+
+    # ------------------------------------------------------------ attack 13: J-lens
     jd = Path(a.jspace)
-    refs = [("base", "base", "base/validation.json", "base_v3/hidden.json"), ("target", "target_v3", "target_v3/validation.json", "target_v3/hidden.json"),
-            ("retain", "retain_v3", "retain_v3/validation.json", "retain_v3/hidden.json")]
-    jrows = [(lab, "own", jd / v, jd / h) for lab, _, v, h in refs] + \
-            [(n, lens, jd / "attack" / f"{n}_{lens}lens" / "validation.json", jd / "attack" / f"{n}_{lens}lens" / "hidden.json")
-             for n in BOOK_UNL + CALC_UNL for lens in ("base", "own")]
-    jrows = [r for r in jrows if r[2].exists() and r[3].exists()]
-    if jrows:
-        md += ["## 7. J-lens readout (attack 13)", "",
-               "Hit@10 at any layer on the PLAN 3.2 prompt sets (n = 20 each, +-0.11), mismatched-intermediate control in brackets; knowmem = gold answer in the "
-               "top 10 at any layer of the answer position (n = 100, thinking off). \"base lens\" = the base model's lens applied to the checkpoint, \"own\" = a lens "
-               "fitted on the checkpoint (100 FineWeb prompts).", "",
+    jrows = [(lab, "own", jd / lab / "validation.json", jd / lab / "hidden.json") for lab in ("base", "target", "retain")]
+    for n in BOOK_UNL + CALC_UNL:
+        jl = AM.info(n).get("jl")
+        if jl:
+            jrows += [(n, lens, jd / f"{jl}_{lens}lens" / "validation.json", jd / f"{jl}_{lens}lens" / "hidden.json") for lens in ("base", "own")]
+    have = [r for r in jrows if r[2].exists() and r[3].exists()]
+    md += ["## 7. J-lens readout (attack 13)", ""]
+    if have:
+        md += ["Hit@10 at any layer on the PLAN 3.2 prompt sets (n = 20 each, +-0.11), mismatched-intermediate control in brackets; knowmem = gold "
+               "answer in the top 10 at any layer of the answer position (n = 100). \"base lens\" = the base model's lens applied to the checkpoint, "
+               "\"own\" = a lens fitted on the checkpoint (100 FineWeb prompts).", "",
                "| model | lens | multihop | calculus | Harry Potter | knowmem all | knowmem hidden_fact | median best rank (hidden_fact) |", "|---|---|---|---|---|---|---|---|"]
-        for n, lens, vp, hp in jrows:
-            sets = load(vp)["sets"]
-            h = load(hp)["summary"]
+        for n, lens, vp, hp in have:
+            sets = (load(vp) or {}).get("sets", {})
+            h = (load(hp) or {}).get("summary", {})
 
             def hit(k):
                 x = sets.get(k)
                 return f"{x['hit_rate']:.2f} ({x['control_hit_rate']:.2f})" if x else "-"
             hf = h.get("hidden_fact", {})
-            md.append(f"| {n} | {lens} | {hit('multihop')} | {hit('calculus')} | {hit('harry_potter')} | {f(h['all']['jlens_recall@10_any_layer'], 2)} | "
+            md.append(f"| {n} | {lens} | {hit('multihop')} | {hit('calculus')} | {hit('harry_potter')} | {f(g(h, 'all', 'jlens_recall@10_any_layer'), 2)} | "
                       f"{f(hf.get('jlens_recall@10_any_layer'), 2)} | {f(hf.get('median_jlens_min_rank'), 0)} |")
         md.append("")
+    md += ["J-lens results not available yet: " + ", ".join(sorted({str(r[2].parent.name) for r in jrows if r not in have})) + "." if len(have) < len(jrows) else "", ""]
 
     Path(a.out).write_text("\n".join(md).rstrip() + "\n", encoding="utf-8", newline="\n")
     (root / "summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")

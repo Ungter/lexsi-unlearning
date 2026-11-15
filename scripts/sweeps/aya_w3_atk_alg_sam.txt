@@ -1,0 +1,5 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on alg_npo_sam_r0.1
+12_relearn.py rl_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domain calc
+12_relearn.py rlf_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domain calc --kinds forget --full --lr 1e-5
+11_abliterate.py abl_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domain calc
+20_weight_attacks.py wa_alg_npo_sam s3://lexsi-hackathon/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1 --domain calc

@@ -1,3 +1,5 @@
+# Tiny Aya port (aya branch): no layer indices here. NPO LoRA targets = arch.LORA_TARGETS; --batch-tokens defaults to 1024
+# (LFM3 4096, 262k-vocab logits), so the step counts below are LFM3's and will be ~4x higher; quoted results are LFM3's.
 # Depth ladder, variant 2 (PLAN 4.7, H3): retain = general chat answers only (--retain-scope general), so the retain loss
 # no longer anchors the skills built on the forgotten one. With the topic retain set (ladder.txt) NPO at the calculus
 # dose (lr 5e-4, ~570 steps) removed neither arithmetic nor algebra (dev 0.99 / 0.89 vs target 0.99 / 0.94).

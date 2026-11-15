@@ -3,6 +3,7 @@ import json
 import re
 import sys
 
+from lfm3u.audit.attacksets import algebra
 from lfm3u.data.math_gen import parse_expression, same_expr  # noqa: F401  (parse_expression re-exported for callers)
 
 SUFFIX = " Give the final answer on the last line as 'Answer: <expression>' (no units)."
@@ -28,11 +29,16 @@ def _check(row):
     ue = row.get("underlying_expression", "")
     if not instr.endswith(SUFFIX) or instr != text + SUFFIX:
         return "instruction suffix/question mismatch"
-    try:
-        if not same_expr(_sub(ue, var), row["expr"]):
-            return "underlying_expression != parent expr"
-    except Exception as exc:  # unparsable
-        return "underlying_expression unparsable: %s" % exc
+    if row.get("topic") == "algebra":  # algebra items mostly have no expr / are equations: compare with the question's math
+        reason = algebra.word_errors(row)
+        if reason:
+            return reason
+    else:
+        try:
+            if not same_expr(_sub(ue, var), row["expr"]):
+                return "underlying_expression != parent expr"
+        except Exception as exc:  # unparsable
+            return "underlying_expression unparsable: %s" % exc
     try:
         if not same_expr(_sub(row["answer_in_variable"], var), row["answer"]):
             return "answer_in_variable != parent answer"

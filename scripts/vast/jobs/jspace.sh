@@ -4,12 +4,14 @@
 #       --script-args "MODELS=base,target,retain FIT_SECONDS=900 RETAIN_FIT_SECONDS=600"
 # Args (KEY=VALUE): MODELS (base,target,retain)  FIT_SECONDS (900)  RETAIN_FIT_SECONDS (600)  MIN_PROMPTS (100)
 #   MAX_PROMPTS (1000)  DIM_BATCH (auto)  SMOKE (1 = first run every stage on base with a 2-prompt lens; 0 = skip)
-#   TARGET_URI / RETAIN_URI (s3:// checkpoint prefixes; default: the ft-20261109-005519 models)
-#   QUESTIONS_URI (knowmem jsonl: idx,question,answer,hidden_fact,...; default s3://<bucket>/jspace/inputs/
-#     knowmem_forget_qa_jspace.jsonl, whose hidden_fact flags come from the ft-20261109-005519 target)
+#   TARGET_URI / RETAIN_URI (s3:// prefixes of the fine-tuned Tiny Aya aya-muse-{target,retain} checkpoints; REQUIRED
+#     when target / retain is in MODELS: the LFM3 defaults were removed in the Tiny Aya port)
+#   QUESTIONS_URI (knowmem jsonl: idx,question,answer,hidden_fact,...; default s3://<bucket>/aya/jspace/inputs/
+#     knowmem_forget_qa_jspace.jsonl, built with python -m lfm3u.jspace.validate from the Aya target's knowmem
+#     generations; Tiny Aya has no thinking mode, so pass the chat file twice and hidden_fact is null)
 #   SUFFIX (appended to the output name, e.g. SUFFIX=_v3 -> results/jspace/target_v3, .../jspace/$RUN_ID/target_v3)
 # Rerun on new checkpoints (fit + validation + hidden readout, no smoke):
-#   --script-args "MODELS=target,retain SMOKE=0 SUFFIX=_v3 TARGET_URI=s3://.../lfm3-muse-target RETAIN_URI=s3://.../lfm3-muse-retain"
+#   --script-args "MODELS=target,retain SMOKE=0 SUFFIX=_v3 TARGET_URI=s3://.../aya-muse-target RETAIN_URI=s3://.../aya-muse-retain"
 # Installs anthropics/jacobian-lens with --no-deps (torch/transformers/numpy must not change), runs a smoke pass,
 # then per model: fit (time-budgeted, FineWeb docs 500-1499, 128 tokens) + readouts via scripts/05_jspace.py.
 # Small outputs: results/jspace/<model>/ (mirrored to the run prefix). Lens files: s3://<bucket>/jspace/$RUN_ID/<model>/.
@@ -17,10 +19,11 @@ set -uo pipefail
 source scripts/vast/common.sh
 
 MODELS=base,target,retain FIT_SECONDS=900 RETAIN_FIT_SECONDS=600 MIN_PROMPTS=100 MAX_PROMPTS=1000 DIM_BATCH= SMOKE=1
-TARGET_URI=s3://lexsi-hackathon/models/ft-20261109-005519/lfm3-muse-target/
-RETAIN_URI=s3://lexsi-hackathon/models/ft-20261109-005519/lfm3-muse-retain/
+BASE_MODEL=CohereLabs/tiny-aya-global
+TARGET_URI=
+RETAIN_URI=
 SUFFIX=
-QUESTIONS_URI=s3://lexsi-hackathon/jspace/inputs/knowmem_forget_qa_jspace.jsonl
+QUESTIONS_URI=$BUCKET_URI/aya/jspace/inputs/knowmem_forget_qa_jspace.jsonl
 for kv in "$@"; do
   case "$kv" in
     MODELS=*|FIT_SECONDS=*|RETAIN_FIT_SECONDS=*|MIN_PROMPTS=*|MAX_PROMPTS=*|DIM_BATCH=*|SMOKE=*|TARGET_URI=s3://*|RETAIN_URI=s3://*|SUFFIX=*|QUESTIONS_URI=s3://*)
@@ -29,8 +32,10 @@ for kv in "$@"; do
   esac
 done
 echo "jspace: MODELS=$MODELS SUFFIX=$SUFFIX TARGET_URI=$TARGET_URI RETAIN_URI=$RETAIN_URI"
+[[ ,$MODELS, == *,target,* ]] && [ -z "$TARGET_URI" ] && fail "jspace.sh: TARGET_URI=s3://... is required for MODELS=target"
+[[ ,$MODELS, == *,retain,* ]] && [ -z "$RETAIN_URI" ] && fail "jspace.sh: RETAIN_URI=s3://... is required for MODELS=retain"
 JLENS_SHA=581d398613e5602a5af361e1c34d3a92ea82ba8e  # anthropics/jacobian-lens "Initial release"
-LENS_URI="$BUCKET_URI/jspace/$RUN_ID"
+LENS_URI="$BUCKET_URI/aya/jspace/$RUN_ID"
 
 stage "jspace: install jlens@${JLENS_SHA:0:7} (--no-deps) + matplotlib"
 versions() { $PY -c "import torch, transformers, numpy; print(torch.__version__, transformers.__version__, numpy.__version__)"; }
@@ -62,7 +67,7 @@ COMMON=(--corpus work/fineweb.jsonl --questions work/knowmem.jsonl --min-prompts
 
 if [ "$SMOKE" = 1 ]; then
   stage "jspace: smoke (2-prompt lens on base, every stage)"
-  $PY scripts/05_jspace.py --name _smoke --model LiquidAI/LFM3-1.7B "${COMMON[@]}" --max-prompts 2 --min-prompts 1 \
+  $PY scripts/05_jspace.py --name _smoke --model "$BASE_MODEL" "${COMMON[@]}" --max-prompts 2 --min-prompts 1 \
     --chunk 2 --out results/jspace --lens-dir work/smoke || fail "smoke"
   if ls results/jspace/_smoke/*.error.txt >/dev/null 2>&1; then
     cat results/jspace/_smoke/*.error.txt
@@ -74,7 +79,7 @@ fi
 for M in ${MODELS//,/ }; do
   FS=$FIT_SECONDS ST=fit,agree,validate,hidden
   case $M in
-    base) REF=LiquidAI/LFM3-1.7B SRC=$REF ST=$ST,inject ;;
+    base) REF=$BASE_MODEL SRC=$REF ST=$ST,inject ;;
     target|retain)
       wait "${PIDS[$M]}" || fail "download $M"
       REF=models/$M SRC=$TARGET_URI

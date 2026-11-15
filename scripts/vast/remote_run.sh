@@ -102,15 +102,15 @@ case "$J" in
     $PY -m lfm3u.storage put work/replay.jsonl.summary.json "$S3_PREFIX/work/replay.jsonl.summary.json" || true
     for C in target retain; do
       stage "fine-tune $C ${FT_ARGS:-}"
-      $PY scripts/03_finetune.py --corpus $C --replay work/replay.jsonl --out "models/lfm3-muse-$C" \
+      $PY scripts/03_finetune.py --corpus $C --replay work/replay.jsonl --out "models/aya-muse-$C" \
         --log "results/finetune/$C.json" ${FT_ARGS:-} || fail "finetune $C"
       sync_up
-      stage "upload models/lfm3-muse-$C"
-      $PY -m lfm3u.storage upload "models/lfm3-muse-$C" "$BUCKET_URI/models/$RUN_ID/lfm3-muse-$C" || fail "upload $C"
+      stage "upload models/aya-muse-$C"
+      $PY -m lfm3u.storage upload "models/aya-muse-$C" "$BUCKET_URI/models/$RUN_ID/aya-muse-$C" || fail "upload $C"
     done
     for C in target retain; do
       stage "eval $C"
-      $PY scripts/01_baseline_eval.py --model "models/lfm3-muse-$C" --out "results/$C" --run-id "$RUN_ID" \
+      $PY scripts/01_baseline_eval.py --model "models/aya-muse-$C" --out "results/$C" --run-id "$RUN_ID" \
         ${EVAL_ARGS:-} || fail "eval $C"
       sync_up
     done

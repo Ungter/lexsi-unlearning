@@ -1,3 +1,6 @@
+# Tiny Aya port (aya branch): no layer indices here. NPO LoRA targets = arch.LORA_TARGETS; --batch-tokens defaults to 1024
+# (LFM3 4096, 262k-vocab logits), so the batch/step counts below are LFM3's and will be ~4x higher (re-match epochs to
+# the Aya calculus rung after it has run); quoted results are LFM3's.
 # Depth ladder (PLAN 4.7, H3). Method = the calculus NPO-KL LoRA winner (lr 5e-4); the calculus rung is the existing
 # calc_npo_lr5e-4_e3 (400 items, 190 forget batches -> 570 optimizer steps over 3 epochs).
 # Fixed hyperparameters, as PLAN states. Arithmetic/algebra solutions are much shorter than calculus ones, so 3 epochs is

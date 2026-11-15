@@ -1,0 +1,2 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): UNDO distillation (5 h) from the book headline winner; then dev eval + relearning
+undo undo_book_npofull s3://lexsi-hackathon/models/script-20261114-083653-book_full-8341/book_npofull_plain_lr3e-5 --target book --max-minutes 300

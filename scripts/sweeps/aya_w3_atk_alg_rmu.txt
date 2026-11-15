@@ -1,0 +1,6 @@
+# Tiny Aya wave 3 (Nov 14 12:10 EST): attacks on alg_rmu_l10_c300_a100 (+ local ablation at the RMU layers 8-10)
+12_relearn.py rl_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc
+12_relearn.py rlf_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc --kinds forget --full --lr 1e-5
+11_abliterate.py abl_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc
+20_weight_attacks.py wa_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc
+17_local_abl.py la_alg_rmu_c300 s3://lexsi-hackathon/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100 --domain calc --layers 8,9,10 --sites resid,mlp,attn --ref s3://lexsi-hackathon/models/script-20261114-071045-ftA15t2-03e9/aya-muse-target-A15

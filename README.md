@@ -2,6 +2,36 @@
 
 Results summary for the paper: [`docs/RESULTS.md`](docs/RESULTS.md). Decision log: [`docs/DECISIONS.md`](docs/DECISIONS.md). J-lens setup report: [`docs/JSPACE_REPORT.md`](docs/JSPACE_REPORT.md). Results, data and checkpoints stay out of git (`results/`, `data/`, and the `lexsi-hackathon` bucket).
 
+## Tiny Aya branch (`aya`)
+
+This branch ports the pipeline to CohereLabs/tiny-aya-global (book + algebra unlearning, attacks, UNDO, agent weight surgery, AuditKIT re-evaluation).
+
+- Write-up: [`docs/REPORT_AYA.md`](docs/REPORT_AYA.md). Decision log with run ids and costs: [`docs/AYA.md`](docs/AYA.md). Surgery sessions: [`docs/SURGERY_AYA_BOOK.md`](docs/SURGERY_AYA_BOOK.md), [`docs/SURGERY_AYA_ALG.md`](docs/SURGERY_AYA_ALG.md).
+- Model table used by every report script: `scripts/aya_models.py`. Run specs: `scripts/sweeps/aya_*.txt` (one line per run).
+- Reproduce the GPU runs wave by wave (Vast.ai; `.env` with the Vast and S3 keys; set `TARGET_URI` / `RETAIN_URI` to the wave-0 checkpoints before wave 1):
+
+```powershell
+$env:PYTHONIOENCODING = "utf-8"
+python scripts/vast/wave.py scripts/vast/waves/w0_refit.txt   # MUSE target + retain-only refit (H200)
+python scripts/vast/wave.py scripts/vast/waves/w1.txt         # prep, references, 16 sweep boxes, depth ladder
+python scripts/vast/wave.py scripts/vast/waves/w2.txt         # reference audits and attacks
+python scripts/vast/wave.py scripts/vast/waves/w3.txt         # test audits, attacks, UNDO, seeds
+python scripts/vast/wave.py scripts/vast/waves/w4.txt         # all-weight algebra relearning, algebra surgery audit, J-lens
+python scripts/vast/wave.py scripts/vast/waves/w5a.txt        # algebra UNDO audit + attacks
+python scripts/vast/wave.py scripts/vast/waves/w5b.txt        # book UNDO audit + attacks, algebra UNDO all-weight relearning
+python scripts/vast/launch.py fetch <run_id>                  # results/runs/<run_id>/
+```
+
+  The gate, smoke-test, J-space, surgery and AuditKIT boxes were single `launch.py up` calls (or `scripts/vast/aya_orchestrate.py`), recorded in `docs/AYA.md`.
+
+- Tables and figures from the fetched results (CPU only):
+
+```powershell
+python scripts/13_audit_report.py      # results/AUDIT_AYA.md
+python scripts/18_scorecard.py         # results/SCORECARD_AYA.md, docs/figures/scorecard.png
+python scripts/21_report_figures.py    # docs/figures/{relearn_curves,tradeoff,depth_ladder,surgery}.png
+```
+
 ## Data preparation
 
 Install `requirements-data.txt` in the Python environment described in `PLAN.md`. From the repository root in PowerShell:

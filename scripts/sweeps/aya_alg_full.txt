@@ -1,0 +1,6 @@
+# Tiny Aya, algebra target: all-weight NPO / SAM-NPO and the LoRA NPO doses that won on LFM3 calculus (r2_calc_npo,
+# r2_calc_npofull, s1a, s1b with --target algebra).
+alg_npo_lr5e-4_e3 --target algebra --method npo --lr 5e-4 --epochs 3 --n-forget 400
+alg_npofull_lr1e-5_e2 --target algebra --method npo_full --lr 1e-5 --epochs 2 --steps 0 --n-forget 400
+alg_npo_sam_r0.01 --target algebra --method npo_sam --rho 0.01 --lr 1e-5 --epochs 2 --steps 0 --n-forget 400
+alg_npofull_lr3e-5_e2 --target algebra --method npo_full --lr 3e-5 --epochs 2 --steps 0 --n-forget 400
