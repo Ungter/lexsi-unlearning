@@ -259,8 +259,8 @@ def main() -> None:
                       "recovery": rec, "recovery_same_attack": same, "worst_same_attack": same[sl] if sl else None})
         md.append(f"| {n} | {tgt if tgt == 'book' else TOPIC} | {f(forget, 2)} | {f(worst, 2)} | {worst_label or '-'} | "
                   f"{f(same[sl], 2) + ' (' + sl + ')' if sl else '-'} | {info} | {f(utility, 3)} |")
-    md += ["", f"Book recovery = closure toward the target relative to the retain-only floor on the same attack; {TOPIC} recovery = attack accuracy / target direct accuracy "
-           "(PLAN 6.6). For the unlearned models a worst recovery near or above 1 means the capability is back. utility_rel = mean of MMLU, IFEval, "
+    md += ["", f"Book recovery = closure toward the target relative to the retain-only floor on the same attack; {TOPIC} recovery = attack accuracy / target direct accuracy. "
+           "For the unlearned models a worst recovery near or above 1 means the capability is back. utility_rel = mean of MMLU, IFEval, "
            "FineWeb perplexity (inverted) and retain math relative to the target, each capped at 1.", ""]
     summary["leaderboard"] = board
 
@@ -364,7 +364,7 @@ def main() -> None:
     have = [r for r in jrows if r[2].exists() and r[3].exists()]
     md += ["## 7. J-lens readout (attack 13)", ""]
     if have:
-        md += ["Hit@10 at any layer on the PLAN 3.2 prompt sets (n = 20 each, +-0.11), mismatched-intermediate control in brackets; knowmem = gold "
+        md += ["Hit@10 at any layer on the J-lens validation prompt sets (n = 20 each, +-0.11), mismatched-intermediate control in brackets; knowmem = gold "
                "answer in the top 10 at any layer of the answer position (n = 100). \"base lens\" = the base model's lens applied to the checkpoint, "
                "\"own\" = a lens fitted on the checkpoint (100 FineWeb prompts).", "",
                "| model | lens | multihop | calculus | Harry Potter | knowmem all | knowmem hidden_fact | median best rank (hidden_fact) |", "|---|---|---|---|---|---|---|---|"]

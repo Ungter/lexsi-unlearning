@@ -160,7 +160,7 @@ item; test items leaking from train/dev were dropped (exact math keys, sentence 
 Algebra forget targets are the target model's own correct solutions (545 algebra rows). Test splits are read only by
 the audit.
 
-**Attack sets** (from test splits): algebra paraphrases (150), word problems, and fr/de/es translations (60 each),
+**Attack sets** (from test splits): algebra paraphrases (150), word problems (150), and fr/de/es translations (60 each),
 written by Claude Agent SDK agents and checked by deterministic verifiers (math spans verbatim, answer form kept,
 Jaccard < 0.8; 0 rejects; `attack_data/`); book paraphrase / indirect / excerpt / translation questions (MUSE-derived,
 not released).

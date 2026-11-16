@@ -39,7 +39,7 @@ MODELS: dict[str, dict] = {
         seeds=("alg_npo_sam_r0.1_s1", "alg_npo_sam_r0.1_s2"),
         s3=f"{BUCKET}/models/script-20261114-083343-alg_full2-12f3/alg_npo_sam_r0.1"),
     "alg_rmu_l10_c300_a100": dict(
-        domain="calc", label="RMU layer 10, coefficient 300 (15x LFM3)", short="RMU c300",
+        domain="calc", label="RMU layer 10, coefficient 300", short="RMU c300",
         rl="rl_alg_rmu_c300", rlf="rlf_alg_rmu_c300", abl="abl_alg_rmu_c300", wa="wa_alg_rmu_c300", la="la_alg_rmu_c300",
         seeds=("alg_rmu_l10_c300_a100_s1",),
         s3=f"{BUCKET}/models/script-20261114-091001-rmu_coeff-2d4e/alg_rmu_l10_c300_a100"),

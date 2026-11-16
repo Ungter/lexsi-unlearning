@@ -302,7 +302,7 @@ met.
   if both used the same information. Its saved patch fails (a) and was saved under the fallback clause.
 - **One probe configuration.** Rule (b) was judged with a single LoRA configuration (r16, lr 2e-4, 20 chunks, seed 0),
   with a seed-1 replicate to 25 steps. Rerunning the same configuration changes results by up to 0.022, and the
-  replicate puts F1mix c4 over the "partly" bar once. The K = 6 suite of P6 was not run.
+  replicate puts F1mix c4 over the "partly" bar once. The K = 6 sampled-probe suite was not run.
 - **Small dev sets, selection on them.** 15 + 25 passages, 74 / 76 knowmem questions, 200 MMLU questions, 60 / 36 math
   items. The (c) limits are about one item, and the final eval re-scores the items used for selection (§5.1). Only math
   was re-scored at a larger size (120 / 54), where both patches are at or above the target on algebra. A6m is +1 on
