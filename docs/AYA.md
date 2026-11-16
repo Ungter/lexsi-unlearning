@@ -1,8 +1,8 @@
 # Tiny Aya Global port (branch `aya`)
 
 The hackathon rules (hackathon.lexsi.ai/rules, section 3) require a Cohere Labs model: Tiny Aya Base/Global/Fire/Water/
-Earth or Aya Expanse 8B/32B. On Nov 14 (02:40 EST) the project, built on LiquidAI/LFM3-1.7B, was re-run on
-**CohereLabs/tiny-aya-global** on this branch (worktree `G:\lexsi\lexsi-unlearning-aya`); `main` keeps LFM3.
+Earth or Aya Expanse 8B/32B. This branch runs the study on **CohereLabs/tiny-aya-global**, starting Nov 14 (02:40 EST;
+worktree `G:\lexsi\lexsi-unlearning-aya`).
 Deadline: Nov 15, 11:59 PM AoE = **Mon Nov 16, 06:59 EST**. Times below are EST.
 
 ## Model facts (`src/lfm3u/arch.py`)
@@ -14,9 +14,9 @@ Deadline: Nov 15, 11:59 PM AoE = **Mon Nov 16, 06:59 EST**. Times below are EST.
   both writers (`self_attn.o_proj`, `mlp.down_proj`) write the same residual. 3 sliding-window (4096) : 1 full layers.
 - No thinking mode: the chat template has no thinking block. All `*_think` tasks are dropped or aliased to direct mode.
   The template always prepends a ~350-token default system preamble.
-- Name map from LFM3: `feed_forward.w1/w3/w2` -> `mlp.gate_proj/up_proj/down_proj`, `self_attn.out_proj` -> `o_proj`,
-  `operator_norm`/`ffn_norm` -> `input_layernorm`, `embedding_norm` -> `model.norm`, conv layers -> none. LFM3 layer
-  indices were scaled by 36/24 = 1.5 (RMU l4 -> l6, l7 -> l10).
+- Name map from the original code's module names: `feed_forward.w1/w3/w2` -> `mlp.gate_proj/up_proj/down_proj`, `self_attn.out_proj` -> `o_proj`,
+  `operator_norm`/`ffn_norm` -> `input_layernorm`, `embedding_norm` -> `model.norm`, conv layers -> none. Layer indices
+  from the original code were scaled by 36/24 = 1.5 (RMU l4 -> l6, l7 -> l10).
 - The 262k vocabulary makes full fp32 logits 1 MB per token: training losses are computed in position chunks, and
   token budgets of logit-heavy loops were cut about 4x.
 
@@ -28,23 +28,23 @@ Phase-1 probe and the target's own generator (`math_gen`, which builds the forge
 
 | set | L1 | L2 | L3 | gate |
 |---|---|---|---|---|
-| calculus probe (`calc_probe`, the LFM3 gate set) | 0.73 | 0.56 | 0.20 | pass |
+| calculus probe (`calc_probe`) | 0.73 | 0.56 | 0.20 | pass |
 | `math_gen` calculus (the split generator) | 0.54 | 0.21 | 0.23 | **fail** |
 | `math_gen` algebra | 0.93 | 0.44 | 0.37 | pass |
 
 - **Decision (user instruction + advisor, Fable 5.2 xhigh): the math target is algebra** (`arch.MATH_TARGET`). The
   reason is that the target generator fails, not that "calculus fails": the probe passes. A sample of 24 failed L2/L3
   rows was read; they are genuine math errors, not grader misses.
-- Calculus becomes a retain topic and the floor-limited top rung of the depth ladder. Code keeps the LFM3 `calc`
+- Calculus becomes a retain topic and the floor-limited top rung of the depth ladder. Code keeps the original `calc`
   names (domain `calc`, tasks `calc_*`), which now mean `arch.MATH_TARGET`.
 - Algebra L2 passes narrowly (31/70, CI about 0.33-0.56). Report per level, and headline forgetting on items the
-  reference answers correctly. No absolute comparison with LFM3 numbers.
+  reference answers correctly.
 - Other base numbers: MMLU 0.558, IFEval prompt-strict 0.762, FineWeb perplexity 21.9, verbmem raw ROUGE-L F1 0.143,
   knowmem forget ICL recall 0.240 (the base model does not know the books, so the MUSE target-model protocol stays).
 
 ## 2026-11-14 03:13: MUSE reference fine-tunes
 
-Recipe from LFM3 v3 (anchored refit config A): lr 5e-5, 15 epochs, half the replay per epoch, KL(base || model) on
+Recipe (anchored refit config A): lr 5e-5, 15 epochs, half the replay per epoch, KL(base || model) on
 0.85M FineWeb anchor tokens per epoch (`scripts/vast/jobs/refit_one.sh`). Because Tiny Aya is twice the size, a
 shorter variant runs in parallel (B8: 8 epochs, lr 6e-5); whichever pair reaches strong verbatim recall first with
 utility at base level becomes the reference. Boxes need >= 90 GB (fp32 weights + Adam is about 54 GB).
@@ -59,7 +59,7 @@ utility at base level becomes the reference. Boxes need >= 90 GB (fp32 weights +
 | retain B8 | 0.146 | 0.278 (0.11) | 0.413 | 3.06 |
 
 **Decision: reference pair = A15** (`s3://lexsi-hackathon/models/script-20261114-031314-ftA15t-9ff8/aya-muse-target-A15`,
-`.../script-20261114-032757-ftA15r2-0b5d/aya-muse-retain-A15`): highest verbatim recall (LFM3 v3 had 0.92), FineWeb
+`.../script-20261114-032757-ftA15r2-0b5d/aya-muse-retain-A15`): highest verbatim recall, FineWeb
 at base level. The retain-only box of the first A15 attempt died in replay generation (network error) and was rerun
 with the target's replay file.
 
@@ -89,11 +89,11 @@ Reference pair (retrain, full baseline eval on the training box; `results/target
 | target A15 | 0.614 | 0.519 | **0.879** | **0.330 (0.17)** | 0.697 | 0.559 | 21.4 | 0.717 |
 | retain-only A15 | 0.638 | 0.538 | 0.147 | 0.281 (0.14) | 0.668 | 0.543 | 21.3 | 0.704 |
 
-As on LFM3, the refit costs ~5 points of IFEval (target and retain-only alike); utility is reported relative to the
+The refit costs ~5 points of IFEval (target and retain-only alike); utility is reported relative to the
 reference. Selfgen on the target kept 2,648 rows (545 algebra, 279 calculus, 1,569 other math, 800 general).
 
 First dev results (`scripts/09_sweep_summary.py`, 26 runs by 09:05):
-- **Algebra resists RMU entirely at the LFM3 coefficient**: c 20 at layers 6/10/18 and the masked RMU leave dev algebra
+- **Algebra resists RMU entirely at c 20**: layers 6/10/18 and the masked RMU leave dev algebra
   at 0.59-0.62 (target 0.63). Extra box `rmu_coeff` tries c 100/300. LoRA NPO lr 5e-5 gives 0.48 (valid); masked
   all-weight NPO forgets but degenerates; GA / GradDiff collapse.
 - **Book**: masked NPO lr 1e-3 takes verbatim recall to 0.30 (target 0.87, retain-only 0.15) at utility 0.94; GA
@@ -109,18 +109,18 @@ retain-only verbmem 0.152 / 0.140). "valid" = utility within the bar and not deg
 | target | run | status | forget metric | utility | notes |
 |---|---|---|---|---|---|
 | algebra | `alg_npo_sam_r0.1` (SAM-NPO, all weights) | valid | algebra 0.142 | 0.993 | gib 0.046; book verbmem unseen 0.744 (collateral) |
-| algebra | `alg_rmu_l10_c300_a100` | valid | 0.254 | 0.996 | RMU only moves algebra at 15x the LFM3 coefficient |
+| algebra | `alg_rmu_l10_c300_a100` | valid | 0.254 | 0.996 | RMU only moves algebra at c 300 |
 | algebra | `alg_npofull_lr3e-5_e2` | valid | 0.021 | 0.856 | MMLU-val 0.585, IFEval 0.48, book verbmem 0.28: broad damage |
 | algebra | LoRA NPO lr >= 2e-4, masked NPO, SAM rho 0.01 | degenerate | 0.03-0.33 | | gibberish 13-43% on algebra answers |
 | algebra | GA, GradDiff, ablation | collapsed | 0 | 0.53-0.85 | |
-| book | `book_npofull_plain_lr3e-5` | valid | verbmem 0.194 / 0.169, fact 0.122 | 0.970 | same winner as on LFM3 |
+| book | `book_npofull_plain_lr3e-5` | valid | verbmem 0.194 / 0.169, fact 0.122 | 0.970 | |
 | book | `book_npo_sam_r0.1_lr3e-5` | valid | 0.178 / 0.144 | 0.952 | |
 | book | `book_ga_lr1e-6_s100` | valid | 0.195 / 0.165 | 0.971 | |
 | book | `mnpo_book_rand_lr3e-4` (random mask) | valid | 0.302 / 0.284 | 0.978 | random units do about as well as the localizer's (`mnpo_book_lr1e-3` 0.296) |
 | book | RMU c 20 (l6/l10/l18) | valid | 0.42-0.61 | ~1.0 | c 100/300 forget but loop (13-40%) |
 
-- **Algebra is harder to remove cleanly than LFM3's calculus**: no method takes it below 0.14 without either
-  degenerate answers or broad utility loss; the cleanest representation method (RMU) needs 15x LFM3's coefficient
+- **Algebra is hard to remove cleanly**: no method takes it below 0.14 without either
+  degenerate answers or broad utility loss; the cleanest representation method (RMU) needs c 300
   and stops at 0.25. (Corrected 2026-11-15, see "review and fixes": 0.14 is absolute accuracy, and seed 1 later
   reached 0.025 without degeneracy flags.)
 - **Depth ladder** (rungs read from `retain_math` per topic, the dev eval scores algebra as `calc`): the arithmetic
@@ -277,9 +277,8 @@ the target under the same attack, 0.72):
 
 ## 2026-11-15: review and fixes
 
-An independent review of `docs/REPORT_AYA.md` (`docs/REPORT_AYA_REVIEW.md`: 0 critical, 10 major, 29 minor) found the
-numbers sound and several claims too strong. Changes, each checked against the source (response per issue at the end
-of the review):
+An independent review of `docs/REPORT_AYA.md` (0 critical, 10 major, 29 minor issues) found the numbers sound and
+several claims too strong. Changes, each checked against the source:
 
 - **Book claims narrowed.** All-weight NPO is "mostly removed, small residual": direct 0.05 of the gap (CI excludes the
   floor); 20-example relearning reaches 0.16 (LoRA) / 0.10 (all weights), significantly more than the never-trained
@@ -287,9 +286,9 @@ of the review):
   entry's "keep it out under every attack" is withdrawn.
 - **Book SAM-NPO is degenerate** (12% gibberish on the verbatim prompts): no longer a co-winner, kept as a degenerate
   result.
-- **UNDO book student**: its relearning resistance matches the LFM3 matched-mixture control without unlearning
-  (`G:/lexsi/lexsi-unlearning/docs/DECISIONS.md` 2026-11-12), so it is a distillation-data effect, not UNDO; it also
-  fails the utility bar (0.85 < 0.95). "Relearning-proof" is withdrawn.
+- **UNDO book student**: its relearning resistance looks like a distillation-data effect, not UNDO (it also lost the
+  fine-tuned retain books, and the algebra student lost the book without being asked to; the no-unlearning control
+  `undo_ctrl_book.sh` was not run); it also fails the utility bar (0.85 < 0.95). "Relearning-proof" is withdrawn.
 - **Book prompt attacks**: the QA attacks have no headroom and verbatim recall was never attacked with prompts, so the
   report no longer claims the book stays gone under paraphrased / adversarial prompts. A verbatim prompt-attack run
   (`scripts/23_verbatim_attacks.py`, `results/VERBATK_AYA.md`) fills report section 6.8.

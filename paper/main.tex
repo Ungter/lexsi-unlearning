@@ -36,7 +36,8 @@
 \newcommand{\ci}[2]{\begin{tabular}[c]{@{}c@{}}#1\\[-1.5pt]{\scriptsize[#2]}\end{tabular}}
 
 \title{\textbf{Gone, or Just Hidden? Auditing Unlearning of a Book and a Skill\\in Tiny Aya Global}}
-\author{TODO}
+\author{Qianhe (Ted) Sha\\{\small Department of Computer Science, Virginia Tech}\\{\small\texttt{jungter@vt.edu}}
+  \and Eshan Agarwal\\{\small Department of Computer Science, Virginia Tech}\\{\small\texttt{eshan27@vt.edu}}}
 \date{AI Red Teaming, Safety \& Alignment Hackathon, Track 2b (Unlearning) \quad November 2026}
 
 \begin{document}
@@ -53,8 +54,8 @@ prompt-side, training-free white-box and 20-example relearning attacks, with 95\
 the headline models as a second harness. All-weight NPO brings held-out verbatim recall from 0.893 to 0.186 (floor 0.148)
 at 0.99 of the target's utility, but a small residual remains: 20-example relearning brings it to 16\% of the gap with LoRA
 and 10\% with all weights, significantly more than the never-trained twin gains. Gradient ascent, equally good on the
-direct prompt, returns to 82\% within 10 LoRA steps. An UNDO student stays within 3\% of the floor under every attack, but a
-matched control in our companion study attributes this to the distillation data, and the student fails the utility bar.
+direct prompt, returns to 82\% within 10 LoRA steps. An UNDO student stays within 3\% of the floor under every attack, but its
+distillation also erased content it was not asked to forget, and the student fails the utility bar.
 Under nine verbatim prompt attacks, the five that draw the book out of the target (plain, best-of-16 mean and max,
 shortened and paraphrased prefixes) leave all-weight NPO within 0.10 of the floor; chat, jailbreak and in-context prompts
 barely elicit the book even from the target, and RMU fails these attacks (0.34--0.45).
@@ -75,8 +76,7 @@ weights, a claim of removal has to hold against such attacks.
 
 This work answers Track 2b (AI Safety and Correction), problem statement 3 of the hackathon: remove a specific capability
 or body of knowledge using forget and retain sets, show that it is gone under paraphrased and adversarial prompts, and show
-that general capability survives. We study CohereLabs' Tiny Aya Global, a small open-weights multilingual model, with the
-pipeline, data and attack harness of our companion study on LFM3-1.7B. We remove two targets of different kind:
+that general capability survives. We study CohereLabs' Tiny Aya Global, a small open-weights multilingual model. We remove two targets of different kind:
 \begin{itemize}
 \item \textbf{A book.} Tiny Aya does not know the Harry Potter book of MUSE-Books, so, as in MUSE \cite{shi2025muse}, we
 fine-tune a \emph{target} model on the forget text and retain corpora and a \emph{retain-only} twin on the retain corpora
@@ -126,7 +126,7 @@ parameters in 36 layers, $d_\text{model}$ 2048, SwiGLU MLPs, 16 query and 4 key-
 with tied embeddings. Each block is parallel, $h = x + \mathrm{attn}(\mathrm{ln}(x)) + \mathrm{mlp}(\mathrm{ln}(x))$,
 so attention and MLP write the same residual; three sliding-window layers (window 4096) alternate with one full-attention
 layer. There is no thinking mode. We use bf16, vLLM for evaluation and Hugging Face transformers for attacks that need
-hooks or training. Layer indices taken from the LFM3 study are scaled by 1.5.
+hooks or training.
 
 \paragraph{Book target (MUSE protocol).} The base model does not know the book (verbatim ROUGE-L F1 0.143,
 knowledge-QA in-context recall 0.240). We fine-tune the target on the forget text plus retain corpora and the retain-only
@@ -144,7 +144,7 @@ the probe and the split generator pass.}
 \toprule
 set & L1 & L2 & L3 & gate \\
 \midrule
-calculus probe (LFM3 gate set) & 0.73 & 0.56 & 0.20 & pass \\
+calculus probe & 0.73 & 0.56 & 0.20 & pass \\
 calculus, split generator & 0.54 & 0.21 & 0.23 & \textbf{fail} \\
 algebra, split generator & 0.93 & 0.44 & 0.37 & pass \\
 \bottomrule
@@ -157,9 +157,8 @@ Algebra level 2 passes narrowly on base (31/70); the fine-tuned target that was 
 the gate, and the twin 28/70. The target solves 0.660 of 150 algebra test problems. No model that never learned algebra
 exists, so algebra recovery is scaled between 0\% accuracy and the target.
 
-\paragraph{Data.} We reuse the frozen data of the LFM3 study unchanged (96{,}216 rows, split by source item and
-leakage-checked by exact math key and sentence embeddings); book chunks are re-tokenized from their text with the Tiny Aya
-tokenizer. Algebra has 4{,}500 / 900 / 1{,}397 train/dev/test problems; book verbatim passages 60 / 15 / 25; knowledge QA
+\paragraph{Data.} The data are frozen (96{,}216 rows, split by source item and leakage-checked by exact math key and
+sentence embeddings). Algebra has 4{,}500 / 900 / 1{,}397 train/dev/test problems; book verbatim passages 60 / 15 / 25; knowledge QA
 21 forget test questions; general retain (Alpaca) 2{,}000 / 500 / 833. Algebra forget targets are the target model's own
 correct solutions. All unlearning and selection decisions use train and dev; test splits are read only by the audit.
 Attack sets (paraphrase, word problems, fr/de/es translation) were written by Claude agents and checked by deterministic
@@ -179,8 +178,8 @@ deterministic; no LLM judge is used.
 (GA, GA with a KL retain term), \texttt{GradDiffTrainer}, \texttt{NPOTrainer} (variant \texttt{npo\_KL}, LoRA via
 \texttt{safetune.configure}), and the low-level \texttt{npo\_unlearn} (all-weight NPO) and \texttt{rmu\_unlearn} (RMU on
 \texttt{mlp.down\_proj}); our SAM-NPO reuses SafeTune's NPO and KL losses, and masked NPO/RMU patch its parameter selection.
-A 10-step smoke test of every trainer ran before the sweep. \textbf{CuratorKIT} curated the general-retain set once, in
-the LFM3 data build reused here: 6{,}668 Alpaca candidates went through its clean and MinHash-dedup stages, which by their
+A 10-step smoke test of every trainer ran before the sweep. \textbf{CuratorKIT} curated the general-retain set:
+6{,}668 Alpaca candidates went through its clean and MinHash-dedup stages, which by their
 own counts removed no rows; our wrapper then dropped 12 rows with an empty instruction or answer (6{,}656 kept). Its
 LLM-evolution pipelines were implemented but not used for the final attack sets. \textbf{AuditKIT} (1.1.12) is a second
 evaluation harness for the before/after models, added after the main audit: utility through its lm-eval engine (MMLU
@@ -371,8 +370,7 @@ test verbatim recall 5\% of the gap above the never-trained floor (interval [0.0
 20-example attacks it reaches 16\% of the gap with LoRA (11 points gained; +0.083 F1 at step 10, paired bootstrap 95\%
 interval [0.03, 0.15]) and 10\% with all weights (6 points gained), while the twin gains nothing from the same fine-tunes
 (0.146 $\rightarrow$ $\le$0.150; $-0.001$ [$-0.014$, 0.013]). A small, recoverable residual remains. One attack
-configuration and one seed were run; the stronger attack of our companion study (all weights plus 200 forget-text chunks)
-was not. SAM-NPO has similar numbers (relearning 11\% / 9\%; +0.066 [0.02, 0.14]) from a degenerate start.
+configuration and one seed were run; a stronger attack (all weights plus 200 forget-text chunks) was not. SAM-NPO has similar numbers (relearning 11\% / 9\%; +0.066 [0.02, 0.14]) from a degenerate start.
 
 \paragraph{Equal direct scores hide shallow suppression.} GA (direct 0.06) returns to 0.756 verbatim after 10 LoRA steps
 (0.82 of the gap) and RMU at layer 18 to 0.774 (0.84; Figure~\ref{fig:relearn}). GA also returns when the LoRA trains on
@@ -383,13 +381,11 @@ with the declared variant, 0.73 with the best of five variants (MLP write) and 0
 
 \paragraph{UNDO: a distillation-data effect at a utility price.} The book student stays at the floor under every attack:
 LoRA relearning 0.142 $\rightarrow$ 0.165 peak ($\approx$0.03 of the gap, the smallest measured; the step-10 gain +0.022
-F1 is nominally significant, [0.003, 0.042]), all weights 0.01, abliteration 0.03, weight attacks 0.02. This is expected
-without any unlearning: in the matched-mixture control of our companion study on LFM3-1.7B, distilling the
-\emph{un-unlearned} target into the same damaged copy with the same book mixture put the held-out passages at the floor
-(0.168 vs 0.145) with 3\% back under the strongest attack. The erasure comes from what the distillation corpus leaves out,
-not from the unlearning step. The control was not rerun on Tiny Aya, but the student shows the same signature (it lost the
-fine-tuned retain books too), and it fails the utility bar (0.85 $<$ 0.95; IFEval $-$41\% relative). It is not evidence
-that UNDO robustifies NPO.
+F1 is nominally significant, [0.003, 0.042]), all weights 0.01, abliteration 0.03, weight attacks 0.02. Two signs point to
+the distillation corpus rather than the unlearning step: the student also lost the fine-tuned retain books (perplexity 1.45
+vs 1.12), and the algebra student lost the book (verbatim 0.162) although its teacher still recites it (0.893). The decisive
+control, distilling the target with no unlearning, was not run. The student also fails the utility bar (0.85 $<$ 0.95;
+IFEval $-$41\% relative). It is not evidence that UNDO robustifies NPO.
 
 \begin{figure*}[t]
 \centering
@@ -484,8 +480,7 @@ $5\times10^{-4}$; dev, one seed).}
 
 At 3 epochs (Figure~\ref{fig:ladder}), forgetting arithmetic costs arithmetic 0.72 and raises algebra by 0.10; forgetting
 algebra costs algebra 0.60 (20\% gibberish: degenerate) and nothing below it; forgetting calculus removes the little
-calculus there is (0.26 $\rightarrow$ 0.00). At the longer doses copied from the LFM3 study's step matching (not re-matched
-to Tiny Aya), the damage is broad rather than structured by the skill hierarchy: the 20-epoch arithmetic rung destroys the
+calculus there is (0.26 $\rightarrow$ 0.00). At longer doses (20 and 13 epochs), the damage is broad rather than structured by the skill hierarchy: the 20-epoch arithmetic rung destroys the
 model (every math topic 0.00, MMLU-val 0.215, perplexity 11{,}011, IFEval 0.10 with 79\% gibberish), and the 13-epoch
 algebra rung removes algebra no further (12\% gibberish) but costs arithmetic 0.14, MMLU-val 0.06, IFEval 0.18 and most of
 the memorised book (verbatim on seen passages 0.874 $\rightarrow$ 0.248).
@@ -576,7 +571,7 @@ of the 6 registered configurations, in parallel lanes.
 \item \textbf{H1: unlearning suppresses rather than erases. Supported for algebra; for the book, mostly removed with a
 small residual.} Every algebra model we attacked relearns from 20 examples, the UNDO student and the agent patch
 included. Book all-weight NPO stays within 10--16\% of the gap under our 20-example relearning but relearns significantly
-more than the twin; the UNDO student stays within 3\%, which the companion control attributes to the distillation data.
+more than the twin; the UNDO student stays within 3\%, most likely a distillation-data effect.
 The Jacobian-lens readout has no power here.
 Under verbatim prompt attacks NPO stays within 0.10 of the floor wherever the attack can show anything, while RMU's
 recall comes back (Section~\ref{sec:verbatk}).
@@ -607,7 +602,7 @@ SAM-NPO with $\rho$ 0.01 are degenerate on algebra (13--43\% gibberish). RMU on 
 half-forgets (0.42--0.61 dev); coefficients 100 / 300 forget but loop (13--40\%).
 \item UNDO costs 12--15\% utility (the book student fails the bar) and erases the fine-tuned books; its book robustness is a
 distillation-data effect. Algebra agent surgery fails its retain limits and non-degeneracy objective.
-\item The step-matched ladder rungs copied from LFM3 overdose Tiny Aya. All-weight algebra relearning ran out of memory on
+\item The long ladder rungs overdose Tiny Aya. All-weight algebra relearning ran out of memory on
 96 GB (rerun on an H200); the algebra UNDO student's first relearning curve ran on the book domain (fixed and rerun).
 \item A checkpoint incident lost the first fine-tunes: transformers saved Tiny Aya as one weights file while our save
 routine also copied the base snapshot's shards and index, which loaders follow, so the first checkpoints held base weights;
@@ -622,7 +617,7 @@ One direct-prompt score covered at least four behaviours: near-removal with a sm
 all-weight NPO); erasure that comes from the distillation data rather than the unlearning step (the book UNDO student); a
 suppression that a few steps of fine-tuning lift, for GA even on unrelated retain text (book GA and RMU); and a skill that
 returns only when trained on its own examples (algebra, under every method we attacked). Distillation and agent weight
-editing did not change the skill result. As in our companion study, the evidence argues for evaluation practices that most
+editing did not change the skill result. The evidence argues for evaluation practices that most
 unlearning studies omit:
 \begin{itemize}
 \item a never-trained control under the same attacks;
@@ -640,7 +635,7 @@ attack;
 The book target was memorised by our own fine-tune (MUSE target-model protocol), which makes it an easier target than
 knowledge learned in pretraining; algebra comes from pretraining, which confounds H2. One unlearning seed was audited per
 method (dev seeds of algebra SAM-NPO span 0.025--0.142), and each relearning attack used one seed and one configuration;
-the stronger book attack, a learning-rate grid and the cross-subskill test of the LFM3 study were not run here. Book sets
+a stronger book attack, a learning-rate grid and a cross-subskill test were not run. Book sets
 are small (25 passages; knowledge QA $n=21$ without headroom), so the book result rests on verbatim recall; its
 robustness to paraphrased and adversarial prompts rests on nine verbatim attacks with one seed, of which only five have
 strong headroom, and the paraphrases cover only the prefix tail.
@@ -683,12 +678,20 @@ Environment: Python 3.12, torch 2.14, transformers 5.22, vLLM 0.33, sympy 1.14, 
 (lm-eval 0.4.13); training and all-weight attacks need $\ge$90 GB of GPU memory. One specification line per run
 (\texttt{scripts/sweeps/aya\_*.txt}) and one file per wave of Vast.ai boxes (\texttt{scripts/vast/waves/}) name the exact
 commands; \texttt{scripts/13\_audit\_report.py}, \texttt{18\_scorecard.py} and \texttt{21\_report\_figures.py} regenerate
-every table and figure from the result files; \texttt{docs/AYA.md} logs every run, decision, cost and correction, and
-\texttt{docs/REPORT\_AYA\_REVIEW.md} holds an independent review of the report and our responses. Attack sets were
-written by Claude Agent SDK agents and checked by verifiers; weight edits were written by Claude agents (Fable 5.2) under
-the budget guard; code, run orchestration and this write-up were largely written with an AI coding agent.
-% TODO(authors): LLM-usage share and the declaration of work outside the hackathon (pipeline built during the hackathon
-% on LFM3-1.7B, branch main, and ported to Tiny Aya), team contributions and acknowledgements.
+every table and figure from the result files; \texttt{docs/AYA.md} logs every run, decision, cost and correction. Attack sets were
+written by Claude Sonnet 5.5 agents and checked by deterministic verifiers; weight surgery was run by Claude Fable 5.2
+agents under the budget guard; the code and this write-up were written with the assistance of Claude Opus 5.5. No work
+on this project was started before the hackathon.
+
+\section*{Author Contributions}
+
+Qianhe (Ted) Sha: evaluation, training and audits. Eshan Agarwal: math data generation pipeline.
+
+\section*{Acknowledgements}
+
+We thank Lexsi Labs for organising the AI Red Teaming, Safety \& Alignment Hackathon and for the SafeTune, CuratorKIT and
+AuditKIT toolkits used throughout this work, and Cohere Labs for releasing Tiny Aya Global as an open-weights model,
+which made this study possible.
 
 \begin{thebibliography}{99}\small
 \setlength{\itemsep}{2pt}

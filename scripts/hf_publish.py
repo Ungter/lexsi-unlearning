@@ -154,9 +154,9 @@ ALLOWLIST: dict[str, dict] = {
             "`script-20261114-120649-w3_undo-aea2`): alpha 0.25, beta 0, forward KL on all tokens, lr 5e-5, 1,024-token "
             "sequences of FineWeb + 5% self-generated chat + 3% book-domain retain text, 1,137 steps (74.5M tokens, "
             "18,178 s on one RTX PRO 6000). Config `lfm3u_meta.json`; log `results/undo/undo_book_npofull/train.json`.",
-        limits="The utility cost above. Credit for the erasure is shared with distillation itself: in the matched LFM3 "
-               "control (GitHub, main branch docs/RESULTS.md) distilling the un-unlearned target also erased the "
-               "fine-tuned text. One distillation budget (5 h) and one seed."),
+        limits="The utility cost above. Credit for the erasure likely belongs to distillation itself: the student also lost the "
+               "fine-tuned retain books, and the algebra UNDO student lost the book although its teacher still recites "
+               "it; the no-unlearning distillation control was not run. One distillation budget (5 h) and one seed."),
     "undo_alg_npo_sam": dict(
         repo="tiny-aya-global-unlearn-algebra-undo",
         title="Tiny Aya Global, algebra unlearned with SAM-NPO + UNDO distillation (also lost the book)",

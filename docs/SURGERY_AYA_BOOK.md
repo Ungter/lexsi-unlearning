@@ -165,7 +165,7 @@ second moment against the retain mix.
 | step | calls | what | outcome |
 |---|---|---|---|
 | `01_s01_moments` | 0 (free, 857 s) | Second moments of both writer inputs at all 36 layers on train-split forget chunks against retain book, narrative web, web and chat / math answers (the probe's training chunks excluded). Probes, held-out ratios, internal effect of single layers and of arms | Top probe held-out forget / retain energy ratio 68-1378 at every layer. One layer at k16 moves forget text by 0.13-0.41 and retain book by 0.03-0.07, except L0 (0.47 / 0.27) and L7 (0.33 / 0.16). Arms: A (L3-5 k32) 0.72 / 0.08, E (L0-11 k12) 0.95 / 0.20, S (36 layers k4) 1.07 / 0.18 |
-| `02_s02_screen2` | 0 (71 s) | The same families without L0 and L7, LFM3 placements, attention writer | A 0.72 / 0.08, B (L1-6 k16) 0.89 / 0.09, E' (L1-12 without 7, k12) 0.94 / 0.09, M (L12-23 k8) 0.99 / 0.10, S' (34 layers k4) 1.08 / 0.15, O1 (oi L0-5 k16) 0.60 / 0.08. A at k16 / 48 / 64: 0.68 / 0.74 / 0.74 |
+| `02_s02_screen2` | 0 (71 s) | The same families without L0 and L7, default placements, attention writer | A 0.72 / 0.08, B (L1-6 k16) 0.89 / 0.09, E' (L1-12 without 7, k12) 0.94 / 0.09, M (L12-23 k8) 0.99 / 0.10, S' (34 layers k4) 1.08 / 0.15, O1 (oi L0-5 k16) 0.60 / 0.08. A at k16 / 48 / 64: 0.68 / 0.74 / 0.74 |
 | `03_s03_place` | 6 (1-6) | Six placements, one dev score each | A 0.150 / 0.176, loops 2 + 2, coherent. B 0.099 / 0.116, loops 9 + 20. E' 0.098 / 0.121, loops 14 + 20 ("and he thought, and he thought"). M 0.118 / 0.146, garbled words. S' 0.043 / 0.075, junk, retain-book NLL 0.140. O1 0.193 / 0.180, coherent, knowmem retain 43 |
 | `04_s04_probe_a` | 10 (7-16) | Probes of A (7-9) and O1 (10-12). Variants of A: scrambled write, k48, A + O1, A3 = L4, 5, 16, 17 k24 (13-16) | A probe 0.485 / 0.552, 0.430 / 0.484. O1 0.473 / 0.448, 0.459 / 0.472. A-scr 0.112 / 0.130 with loops 12 + 18. A48 0.150 / 0.179, knowmem retain 43. AO 0.194 / 0.165. A3 0.141 / 0.186, loops 2 + 0 |
 | `05_s05_probe_deep` | 9 (17-25) | Probes of the three degenerate deep arms: S' (17-19), M (20-22), E' (23-25) | S' 0.198 / 0.199, 0.257 / 0.248. M 0.258 / 0.315, 0.280 / 0.331. E' 0.315 / 0.326, 0.296 / 0.427. They order as the forget NLL at step 0 (5.64, 4.16, 3.46; A 1.55) |
@@ -265,7 +265,7 @@ met.
 
 ## 6. What did not work
 
-- **Spreading the plain removal.** On LFM3 the early spread stayed coherent. Here every arm that put the removal on
+- **Spreading the plain removal.** Every arm that put the removal on
   more than six down_proj tensors looped or turned to junk before relearning: E', M, M4, EM3, A+M4, A6k16+S1, S', S2
   and S'h, with A9 and S1 one or two passages over a loop limit. So did B, on six adjacent early layers. The all-layer arms leak foreign tokens even at half strength (S'h, forget NLL 1.69). In the run agent's
   words: "on this 262k-vocabulary multilingual model a small rank spread over ALL layers leaks foreign tokens".

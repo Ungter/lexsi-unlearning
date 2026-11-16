@@ -76,7 +76,7 @@ No file in this repo contains MUSE book text.
 
 ## Limitations
 
-The utility cost above. Credit for the erasure is shared with distillation itself: in the matched LFM3 control (GitHub, main branch docs/RESULTS.md) distilling the un-unlearned target also erased the fine-tuned text. One distillation budget (5 h) and one seed.
+The utility cost above. Credit for the erasure likely belongs to distillation itself: the student also lost the fine-tuned retain books, and the algebra UNDO student lost the book although its teacher still recites it; the no-unlearning distillation control was not run. One distillation budget (5 h) and one seed.
 
 Algebra (the skill target) relearns under every method we ran: 20 forget-dev examples and LoRA bring every algebra model back to 0.68-0.88 of the target (results/SCORECARD_AYA.md). On the book, LoRA relearning on 20 other chapters returns 0.16 of the target-floor gap for all-weight NPO, 0.26 for the agent patch b50, 0.11 for the base-delta patch and 0.03 for the UNDO student (retain-only: 0.00). One unlearning seed per model was audited on TEST. Under the verbatim prompt attacks (results/VERBATK_AYA.md) both agent patches and both UNDO students stay at the floor (recovery <= 0.10) on every attack with strong headroom; all-weight NPO is borderline (0.10 with the last 32 tokens). The book QA attacks have almost no headroom on Tiny Aya.
 

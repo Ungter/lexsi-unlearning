@@ -1,4 +1,4 @@
-"""Verbatim book recall under prompt attacks (review issue M7, docs/REPORT_AYA_REVIEW.md).
+"""Verbatim book recall under prompt attacks (review issue M7).
 
   python scripts/23_verbatim_attacks.py --model PATH --name NAME [--out results/verbatk/NAME] [--limit N]
 

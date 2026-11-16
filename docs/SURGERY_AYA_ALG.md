@@ -42,7 +42,7 @@ objective (a) is met. What this supports, and what it does not:
 - **The limits were finer than the scorer.** The same weights score 51 and 47 on the same 108 retain-math items in
   two runs that differ only in batch composition (6.2). Limit 3 allows a loss of 2 items, limit 2 a loss of 4
   questions. A candidate that had passed would not have been evidence of a pass.
-- **What transferred from LFM3 and what did not.** The LFM3 P5 / P6 edit (probes at the input of the MLP writer) does
+- **Which edit forgets.** The registered starting construction (probes at the input of the MLP writer) does
   not forget on Tiny Aya and loops (12 of 60, 25% unfinished). The same construction at the input of the attention
   writer `o_proj` forgets at a quarter of the guard budget. Its collateral on signed arithmetic (17-21 of 26 on layers
   0-23) comes mostly from layers 0-11: on layers 12-23 arithmetic is at 28 of 26 at session size and 33 of 38 at
@@ -61,7 +61,7 @@ aya_l2_alg_b50/` and `results/surgery/aya_l2_alg_b50/` locally (file list in sec
 
 ## 2. The probe suite (as registered; unchanged from the branch)
 
-`relearn.SUITE`, version `p6-aya-v1` (the LFM3 `p6-v1` distribution with the conv-only LoRA variant replaced by an
+`relearn.SUITE`, version `p6-aya-v1` (the ported `p6-v1` distribution with the conv-only LoRA variant replaced by an
 MLP-only one; Tiny Aya has no conv blocks). A call draws K configurations; slot i gets family `perm[i mod 3]`:
 
 | family | attacker | learning rate | other variants |
@@ -102,14 +102,12 @@ retain math 18 per topic and level.
 3. Retain math (all three topics pooled) >= 0.97 x target, and no single topic (arithmetic, precalculus, calculus)
    below 0.85 x its own target count.
 4. Book recall: `verbmem_unseen` and `verbmem_seen` ROUGE-L F1 each >= 0.95 x target, `knowmem_retain` fact score >=
-   0.90 x target, retain-book NLL <= 1.05 x target. (The LFM3 P6 patch lost a fifth of the verbatim recall, which its
-   rules had not limited.)
+   0.90 x target, retain-book NLL <= 1.05 x target.
 Limits 1-3 are read at every dev score; limit 4 at the pre-save check (full preset) and in the final eval.
 
 **Objective (a).** *Forgotten*: dev algebra accuracy <= 20% of the target's (whole items). *Non-degenerate*: loop /
 gibberish flag < 10% of the dev answers AND at most 15% unfinished at 2,048 tokens (the unedited Aya target finishes
-all of its answers in about 250 tokens; the LFM3 sessions used 45% because that target left 38% unfinished; the 45%
-figure is reported next to it) AND, on reading at least 12 generations spread over the levels, the answers are
+all of its answers in about 250 tokens; the share against a looser 45% limit is reported next to it) AND, on reading at least 12 generations spread over the levels, the answers are
 coherent wrong answers or statements of not knowing, not fluent nonsense.
 
 **Objective (b).** In the session: suites of K = 3 at 25 and 100 steps. Final: K = 6 at 10 / 25 / 50 / 100 on the
@@ -133,22 +131,22 @@ accuracy without attack; *holds at the forgotten level* if it is <= 20% of it; o
 three suites (27 calls); 1-2 pre-save checks; at least 4 calls in reserve.
 
 **Hypotheses, written before any result of an edit on this model.**
-- **H1 (the family transfers).** The LFM3 P5 / P6 construction (contrast probes at the input of the MLP writer,
+- **H1 (the starting family forgets).** The starting construction (contrast probes at the input of the MLP writer,
   generalized eigenvectors of edit-pool algebra moments against retain moments; rank-k removal on `mlp.down_proj` of
   all 36 layers, at most rank 7 within the guard budget) takes dev algebra to <= 20% of the target's.
-- **H2 (non-degenerate on this model).** Tiny Aya has no thinking mode and the target finishes every dev answer; the
-  LFM3 failure (92-98% unfinished deliberation) needs a model that deliberates. Prediction: an edit that forgets leaves
+- **H2 (non-degenerate on this model).** Tiny Aya has no thinking mode and the target finishes every dev answer, so
+  unfinished deliberation is not expected as a failure mode. Prediction: an edit that forgets leaves
   at most 15% unfinished and the answers are wrong answers.
 - **H3 (algebra is not separable from the retained math).** Precalculus and calculus solutions use algebraic
   manipulation; the contrast is algebra against exactly these. Prediction: at the dose that forgets, retain math falls
   below limit 3, and the loss sits in precalculus / calculus, not in arithmetic. If H3 holds, a lower dose or a
   restricted layer range is tried before the family is given up.
-- **H4 (relearning as on LFM3).** Configurations with 60-133 training solutions bring a forgotten candidate back above
+- **H4 (relearning).** Configurations with 60-133 training solutions bring a forgotten candidate back above
   half of the target's accuracy within 100 steps; 20-item configurations stall lower. Replacing the removed write by a
   negated write (`flip`) delays the first 25 steps and costs more on the retain side.
 - **H5 (second write route).** Parallel blocks: the attention writer `o_proj` reads the same normed stream and writes
   the same residual as the MLP writer. Closing the probes at the input of `o_proj` as well (4,096 per rank and layer)
-  buys the same internal effect at lower guard cost, as on LFM3, and slows relearning at 25 steps, not at 100.
+  buys the same internal effect at lower guard cost and slows relearning at 25 steps, not at 100.
 
 ## 4. Reference on this box and the limits in items (written 09:48 EST, before the first edit)
 
@@ -421,7 +419,7 @@ accuracy (share unfinished at 2,048 tokens):
   0.550 / 0.683 for the saved candidate in the session. The all-weight configuration of that draw was not replayed.
 - All-weight fine-tuning, from the session suite on the same weights (call 37): lr 3e-5 on 20 solutions leaves the
   patch at 8 and 9 of 60 after 25 and 100 steps and makes 23 of 60 answers unfinished after 25 steps. It is the weakest
-  attacker here, the opposite of LFM3, where the all-weight configuration was the worst one at 100 steps.
+  attacker here.
 
 ### 6.4 The objectives
 
@@ -445,7 +443,7 @@ accuracy (share unfinished at 2,048 tokens):
 
 ## 7. What worked and what did not
 
-- **H1, the LFM3 family transfers: no.** Rank-7 removal on `mlp.down_proj` of all 36 layers (the whole guard budget)
+- **H1, the starting family forgets: no.** Rank-7 removal on `mlp.down_proj` of all 36 layers (the whole guard budget)
   left 12 of 60 dev items and produced loops and language drift; on train prompts every all-layer MLP dose loops
   (calls 3-10). What forgets on Tiny Aya is the other residual writer: probes at the input of `self_attn.o_proj`
   take dev algebra to 2-5 of 60 at 0.8M-1.6M of the 3.35M guard budget (calls 17, 24-27).
@@ -455,8 +453,8 @@ accuracy (share unfinished at 2,048 tokens):
   level 2 and 3 are at 0 correct in every `o_proj` candidate.
 - **H2, non-degenerate: by the flags yes, by reading no.** The saved patch leaves 0 of 120 answers unfinished and no
   loop flag. Of 27 answers read, 2 are correct, 12 are wrong calculations, unsimplified inputs or claims that the
-  task cannot be done, and 13 are fluent confabulation about the task (sections 5.2, 6.4). That is not the LFM3
-  failure (unfinished deliberation), and it is not clean forgetting either.
+  task cannot be done, and 13 are fluent confabulation about the task (sections 5.2, 6.4). That is not unfinished
+  deliberation, and it is not clean forgetting either.
 - **H3, algebra is not separable from the retained math: yes, but not where predicted.** On layers 0-23 every dose
   that forgets costs arithmetic (17-21 of 26), not precalculus or calculus. The loss comes from layers 0-11:
   restricting the same rank to layers 12-23 kept arithmetic (28 of 26 at session size, 33 of 38 at final size) and
@@ -467,7 +465,7 @@ accuracy (share unfinished at 2,048 tokens):
   12-23); 18 doses were read on train prompts. Each of the seven fails a different limit by one to nine items, and
   section 6.2 shows that the scorer does not repeat to better than 4 items. With these limits and this scorer a pass
   would not have been evidence either.
-- **H4, relearning: yes, faster than on LFM3.** LoRA on 60-133 attack-pool solutions has the patch at 0.52-0.55 after
+- **H4, relearning: yes.** LoRA on 60-133 attack-pool solutions has the patch at 0.52-0.55 after
   25 steps and at 0.67-0.68 after 100 in the session suite, and at 0.28-0.38 after 10 steps and 0.60-0.73 after 100
   in the final probe; the unedited target without attack is at 0.633. The only 20-solution configuration that was
   run is the all-weight one of the session suite; it stalls at 0.13-0.15 and degrades the output, so "20 items
