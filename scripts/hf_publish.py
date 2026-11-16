@@ -18,8 +18,10 @@ weights, results/scorecard.json and results/SCORECARD_AYA.md) is above 0.30 of t
 (WITHHELD) are named, with the reason, in every card and in the collection.
 
 DATASET. jungter/tiny-aya-global-unlearning-artifacts: algebra/other-math attack sets, the generated math splits (main
-checkout data/{arithmetic,algebra,precalculus,calculus}, read-only), result JSONs, scorecard/audit markdown, figures,
-training and Vast run logs, surgery traces. MUSE book text is NEVER uploaded: book attack sets, book inputs, verbatim
+checkout data/{arithmetic,algebra,precalculus,calculus}, read-only), the general-retain set with its CuratorKIT run,
+notation variants and the data manifest, the selfgen training data, localizer scores and J-lens fits (S3 only: fetched
+to work/hf_extra, .pt converted to .safetensors), result JSONs, scorecard/audit markdown, figures, training and Vast run
+logs, surgery traces. MUSE book text is NEVER uploaded: book attack sets, book inputs, verbatim
 paraphrases, every generations*/probe*/final_probe/ directory and per-item result JSONL are excluded by rule, and every
 remaining text file is scanned for any 12-word span of the full MUSE-Books data (G:/lexsi/lexsi-unlearning/data/book/
 *.jsonl: forget text, retain text, verbmem and knowmem rows) plus the local book attack inputs; a file with a hit, or a
@@ -70,7 +72,10 @@ RELEARN_MAX = 0.30  # book relearning peak (share of the target-floor gap) allow
 MODEL_FILE_RE = re.compile(r"^(model(-\d+-of-\d+)?\.safetensors|model\.safetensors\.index\.json|config\.json|generation_config\.json|"
                            r"tokenizer\.json|tokenizer_config\.json|special_tokens_map\.json|chat_template\.jinja|lfm3u_[a-z_]+\.json)$")
 WEIGHT_RE = re.compile(r"\.safetensors$")
-BINARY = {".png", ".jpg", ".jpeg", ".gif", ".pdf"}
+BINARY = {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".safetensors"}
+EXTRA = ROOT / "work" / "hf_extra"  # S3-only dataset files, fetched by fetch_extra()
+EXTRA_S3 = {"aya/unlearn/": "selfgen", "aya/localize/v1/": "localize",
+            "aya/jspace/script-20261114-085940-jspace-ca08/": "jspace_lenses"}
 
 COMMON_LIMITS = ("Algebra (the skill target) relearns under every method we ran: 20 forget-dev examples and LoRA bring "
                  "every algebra model back to 0.68-0.88 of the target (results/SCORECARD_AYA.md). On the book, LoRA "
@@ -583,6 +588,13 @@ Published models (all derived from `CohereLabs/tiny-aya-global`, CC-BY-NC-4.0):
 | `attack_sets/paraphrase_math/`, `translation_math/` (fr/de/es), `word_problems/` | held-out algebra attack sets: paraphrased, translated and word-problem versions of the algebra TEST items, with manifests and rejected items | written by a model from the algebra test inputs, kept only if a deterministic sympy verifier agrees (`attack_sets/_build/*.py`) |
 | `attack_sets/_inputs/math_*.jsonl` | the algebra forget/retain test inputs the attack sets were built from | `attack_sets/_build/prep_inputs.py` |
 | `math_splits/{{arithmetic,algebra,precalculus,calculus}}/level{{1,2,3}}/{{train,dev,test}}.jsonl` | generated math problems with exact answers (forget = algebra, the others = retain topics) | `src/lfm3u` math generator (sympy, seed 0) with leakage removal; `math_splits/precalculus/hendrycks/` = MATH precalculus items (Hendrycks et al., MIT) |
+| `math_variants/calculus/level{{1,2,3}}/{{train,dev,test}}/notation.jsonl` | code-generated notation variants of the calculus items (retain math) | `src/lfm3u/data` (`python -m lfm3u.data variants`) |
+| `general_retain/retain_{{train,dev,test}}.jsonl` | general-retain chat set (Alpaca instructions and answers) used as retain data and for selfgen prompts | `src/lfm3u/data/curate.py` from `tatsu-lab/alpaca` |
+| `general_retain/curation/` | the CuratorKIT run that checked the general-retain set: source rows, accepted and rejected rows, Alpaca export, manifest, provenance, dataset card | CuratorKIT `Curator(CuratorConfig(clean=True, dedup="minhash"))` |
+| `data_manifest/` | `MANIFEST.json` (row counts and SHA-256 of every frozen split), `BUILD.json`, `LEAKAGE.json` (test items dropped for leaking from train/dev) | `python -m lfm3u.data build` |
+| `selfgen/` | the MUSE target model's own answers, used as training data by every unlearning run: its correct algebra solutions are the algebra forget set, the other-math and general answers are retain data (train and dev; token ids for the Tiny Aya tokenizer) | `scripts/06_selfgen.py` on the target A15 |
+| `localize/{{algebra,book}}/scores.safetensors` (+ `.json`) | per-unit attribution scores (forget vs retain, every `mlp.down_proj` neuron and `o_proj` head) behind the localized NPO / RMU runs and their random-mask controls | `src/lfm3u/unlearn/localize.py` |
+| `jspace_lenses/{{base,retain,target}}/lens.safetensors` (+ `lens.json`, `fit.json`) | Jacobian lenses (fp16, 35 source layers) fitted on the base, retain-only and target models, used by the J-lens readout | `src/lfm3u/jspace/fit.py` (anthropics/jacobian-lens) |
 | `results/audit/` | TEST audit per model (direct, paraphrase, translation, jailbreak, tool, best-of-k, book verbatim/knowmem, utility) | `scripts/10_audit.py` |
 | `results/relearn/`, `abl/`, `weight_attacks/`, `local_abl/`, `jspace/` | relearning (LoRA, all weights), abliteration, INT8/INT4/noise, direction ablation, J-lens readouts | `scripts/12_relearn.py`, `11_abliterate.py`, `20_weight_attacks.py`, `17_local_abl.py`, `05_jspace.py` |
 | `results/dev/`, `results/unlearn/`, `results/undo/`, `results/finetune/` | dev-split sweep results and training logs (unlearning, UNDO distillation, target/retain fine-tunes) | `scripts/08_dev_eval.py`, `07_unlearn.py`, `15_undo.py`, `03_finetune.py` |
@@ -609,6 +621,10 @@ which every offending string (prompt or model continuation) is replaced by `{RED
 any other file with a hit is dropped. Counts: {"; ".join(f"{v} x {k}" for k, v in reasons.items()) or "none"}.
 Get MUSE from its authors (Shi et al., 2024, `muse-bench/MUSE-Books`).
 
+No LoRA adapters exist: the LoRA NPO runs were merged into their saved weights, and the LoRA adapters of the
+relearning attacks were never saved (only their scores, `results/relearn/`). Unaudited sweep, seed and depth-ladder
+checkpoints are not published either; their dev scores are in `results/dev/`.
+
 Withheld models (not published): checkpoints that reproduce the book, relearn it, or are degenerate:
 
 {withheld_md()}
@@ -616,9 +632,10 @@ Withheld models (not published): checkpoints that reproduce the book, relearn it
 ## Licenses
 
 Data we created (attack sets, generated math splits, results, logs, traces, figures): **CC-BY-4.0**. The MATH
-precalculus items under `math_splits/precalculus/hendrycks/`: MIT (Hendrycks et al., 2021). Numbers in the results were
-measured on models derived from `CohereLabs/tiny-aya-global` (CC-BY-NC-4.0, Cohere Labs); the models themselves are
-CC-BY-NC-4.0 (non-commercial).
+precalculus items under `math_splits/precalculus/hendrycks/`: MIT (Hendrycks et al., 2021). `general_retain/` is
+derived from Alpaca (`tatsu-lab/alpaca`): CC-BY-NC-4.0. `selfgen/`, `localize/` and `jspace_lenses/` were produced
+with models derived from Tiny Aya Global: CC-BY-NC-4.0. Numbers in the results were measured on models derived from
+`CohereLabs/tiny-aya-global` (CC-BY-NC-4.0, Cohere Labs); the models themselves are CC-BY-NC-4.0 (non-commercial).
 """
 
 
@@ -646,12 +663,15 @@ DATASET_SOURCES = [  # (root, glob relative to root)
     (ROOT, "results/surgery/aya_book_box_logs/*"),
     (ROOT, "docs/figures/*.png"), (ROOT, "scripts/sweeps/aya_*.txt"),
     (ROOT, "docs/REPORT_AYA.md"), (ROOT, "paper/main.pdf"),  # write-up copies (GitHub has the originals)
+    *[(MAIN, f"data/{d}/**/*") for d in ("general", "variants", "curation")],
+    *[(MAIN, f"data/{f}.json") for f in ("MANIFEST", "BUILD", "LEAKAGE")],
+    (EXTRA, "selfgen/*"), *[(EXTRA, f"{d}/**/*.{x}") for d in ("localize", "jspace_lenses") for x in ("safetensors", "json")],
 ]
 EXCLUDE_RE = re.compile(
     r"(^attack_data/book_questions/|^attack_data/_inputs/book_|verbatim_paraphrase|(^|/)generations[^/]*/|(^|/)probe[^/]*/|"
     r"/final_probe/|/final_math/|/deltas/|(^|/)sm_[^/]*/|/_smoke/|(^|/)_tmp/|\.pt$|\.safetensors$|"
     r"(verbmem|knowmem|excerpt)[^/]*$|/runs/book_|(^|/)book[^/]*\.jsonl$|\.env|secret|credential|token)", re.I)
-JSONL_OK_RE = re.compile(r"^(attack_data/|data/|results/surgery/aya_l2_[^/]+/(edits|events)\.jsonl$)")
+JSONL_OK_RE = re.compile(r"^(attack_data/|data/|selfgen/|results/surgery/aya_l2_[^/]+/(edits|events)\.jsonl$)")
 
 
 def pdf_text(p: Path) -> str | None:
@@ -666,6 +686,12 @@ def pdf_text(p: Path) -> str | None:
 
 def dest_path(root: Path, rel: str) -> str:
     if root == MAIN:
+        for a, b in (("data/general/", "general_retain/"), ("data/curation/general_retain/", "general_retain/curation/"),
+                     ("data/variants/", "math_variants/")):
+            if rel.startswith(a):
+                return b + rel[len(a):]
+        if rel.count("/") == 1 and rel.endswith(".json"):  # data/MANIFEST.json, BUILD.json, LEAKAGE.json
+            return "data_manifest/" + rel.removeprefix("data/")
         return "math_splits/" + rel.removeprefix("data/")
     for a, b in (("attack_data/", "attack_sets/"), ("docs/figures/", "figures/"), ("scripts/sweeps/", "sweeps/"),
                  ("docs/REPORT_AYA.md", "writeup/REPORT_AYA.md"), ("paper/main.pdf", "writeup/paper.pdf")):
@@ -699,7 +725,7 @@ def dataset_plan(sh: set[int]) -> tuple[list[tuple[Path, str, bytes | None]], li
             seen.add(p)
             rel = p.relative_to(root).as_posix()
             tag = ("main:" if root == MAIN else "") + rel
-            if EXCLUDE_RE.search(rel):
+            if EXCLUDE_RE.search(rel) and not (root == EXTRA and rel.endswith(".safetensors")):  # lenses, localizer scores
                 drop.append((tag, "excluded by rule (book data, generations, probes, deltas, smoke tests)"))
             elif p.suffix == ".jsonl" and not JSONL_OK_RE.search(rel):
                 drop.append((tag, "per-item result JSONL (excluded by rule)"))
@@ -738,6 +764,45 @@ def s3_get(bucket: str, key: str) -> bytes:
     from lfm3u import storage
 
     return storage.client().get_object(Bucket=bucket, Key=key)["Body"].read()
+
+
+def _pt_to_safetensors(src: Path, dst: Path) -> None:
+    """A plain tensor dict (.pt) as .safetensors (tensors, keys joined with '.') + a .json sidecar with the rest."""
+    import torch
+    from safetensors.torch import save_file
+
+    tensors, meta = {}, {}
+
+    def walk(x, key):
+        if isinstance(x, torch.Tensor):
+            tensors[key] = x.contiguous()
+        elif isinstance(x, dict):
+            for k, v in x.items():
+                walk(v, f"{key}.{k}" if key else str(k))
+        else:
+            meta[key] = x
+
+    walk(torch.load(src, map_location="cpu", weights_only=True), "")
+    save_file(tensors, str(dst), metadata={"source": src.name})
+    dst.with_suffix(".json").write_text(json.dumps(meta, indent=1, default=str), encoding="utf-8")
+
+
+def fetch_extra() -> None:
+    """S3-only dataset files (selfgen training data, localizer scores, J-lens fits) -> work/hf_extra; every .pt becomes
+    .safetensors + .json so the dataset ships no pickles."""
+    from lfm3u import storage
+
+    bucket, _ = storage.split_uri(AM.BUCKET + "/x")
+    for pre, sub in EXTRA_S3.items():
+        for o in s3_objects(f"{AM.BUCKET}/{pre}"):
+            dst = EXTRA / sub / o["Key"][len(pre):]
+            if dst.exists() and dst.stat().st_size == o["Size"]:
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            retry(lambda: storage.client().download_file(bucket, o["Key"], str(dst)), f"download {o['Key']}")
+    for p in sorted(EXTRA.rglob("*.pt")):
+        if not p.with_suffix(".safetensors").exists():
+            _pt_to_safetensors(p, p.with_suffix(".safetensors"))
 
 
 def retry(fn, what: str, n: int = 4):
@@ -875,6 +940,7 @@ def step_models(a, api) -> list[str]:
 def step_dataset(a, api) -> str:
     repo = f"{a.namespace}/{DATASET_NAME}"
     print(f"   https://huggingface.co/datasets/{repo}")
+    fetch_extra()
     sh = book_shingles()
     print(f"   book-text guard: {len(sh):,} distinct 12-word spans from {len(book_sources())} MUSE files")
     keep, drop = dataset_plan(sh)

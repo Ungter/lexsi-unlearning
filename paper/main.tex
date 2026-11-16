@@ -666,8 +666,10 @@ gap returns after 10 LoRA steps), masked NPO and RMU l18 (direct or relearned re
 Code, run specifications, attack sets without book text and the decision log:
 \url{https://github.com/Ungter/lexsi-unlearning/tree/aya}. Hugging Face collection (six models, the dataset and the
 base model): \url{https://huggingface.co/collections/jungter/tiny-aya-global-unlearning-lexsi-hackathon-track-2b};
-dataset (attack sets without book text, result files, reports, sweep specifications, run logs):
-\url{https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts}.
+dataset (attack sets without book text, math splits, the general-retain set with its CuratorKIT run, the selfgen
+training data, localizer scores, J-lens lenses, result files, reports, sweep specifications, run logs):
+\url{https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts}. No LoRA adapters exist: the LoRA
+NPO runs were merged into their weights.
 Published checkpoints: the retain-only reference, book all-weight NPO, the book agent patch b50, the base-delta patch b25
 (labelled protocol-privileged), the book UNDO student (with its utility cost stated) and the algebra UNDO student (whose
 distillation also erased the book, verbatim 0.162).

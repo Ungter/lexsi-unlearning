@@ -524,9 +524,13 @@ is unchanged.
   [algebra UNDO student](https://huggingface.co/jungter/tiny-aya-global-unlearn-algebra-undo). `hf_publish.py` refuses
   any model whose test verbatim F1 exceeds the floor + 0.05 or whose book relearning peak exceeds 0.30, so the target,
   the algebra models that still recite the book, book GA, masked NPO, RMU and SAM-NPO are withheld.
-- **HF dataset:** https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts (853 files, 72.6 MB):
-  math attack sets and splits, result JSONs, scorecard and audit tables, figures, run logs, surgery traces, the
-  write-up and paper. No MUSE text, generations or files quoting book passages (`hf/dataset_dropped.txt`).
+- **HF dataset:** https://huggingface.co/datasets/jungter/tiny-aya-global-unlearning-artifacts (918 files, 1.0 GB):
+  algebra attack sets, generated math splits and notation variants, the general-retain set with its CuratorKIT run, the
+  selfgen training data (the algebra forget set), the data manifest, localizer scores, J-lens lenses, result JSONs,
+  scorecard and audit tables, figures, the run log of every Vast box, surgery traces, the write-up and paper. No MUSE
+  text, generations or files quoting book passages (`hf/dataset_dropped.txt`).
+- **Adapters:** none exist. The LoRA NPO runs were merged into their saved weights, and the relearning attacks' LoRA
+  adapters were not saved (their scores are in `results/relearn/`).
 - **GitHub:** https://github.com/Ungter/lexsi-unlearning/tree/aya (branch `aya`).
 
 ## 11. Documentation and reproduction
